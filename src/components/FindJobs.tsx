@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../AuthContext';
 import { Job, SearchFilters, ProviderStatus } from '../types';
 import { jobService } from '../services/jobService';
+import { jobMatchService } from '../services/jobMatchService';
 import { resumeService } from '../services/resumeService';
 import { Search, MapPin, Briefcase, IndianRupee, Loader2, Star, CheckCircle2, Clock, Filter, AlertTriangle, Building, Save, Info } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -28,7 +29,8 @@ export default function FindJobs() {
   useEffect(() => {
     if (!user) return;
     const fetchUserData = async () => {
-      const jobs = await jobService.getJobsForUser(user.uid);
+      const savedJobsList = await jobService.getSavedJobsForUser(user.uid);
+      const jobs = savedJobsList.map(sj => sj.job);
       const savedMap = new Map<string, Partial<Job>>();
       const savedIds = new Set<string>();
       jobs.forEach(j => {
@@ -98,7 +100,7 @@ export default function FindJobs() {
           
           // If the job is saved, persist the analysis to jobService immediately
           if (savedJobIds.has(job.id!)) {
-             await jobService.updateJob(job.id!, analysis);
+             await jobMatchService.saveMatch({ ...analysis, jobId: job.id!, userId: user.uid, id: '' } as any);
              // Also update local savedJobs map
              setSavedJobs(prev => {
                 const next = new Map(prev);
@@ -108,7 +110,8 @@ export default function FindJobs() {
              });
           } else {
              // If not saved, we just save it now automatically as they analyzed it
-             await saveJob({ ...job, ...analysis });
+             await saveJob(job);
+             await jobMatchService.saveMatch({ ...analysis, jobId: job.id!, userId: user.uid, id: '' } as any);
           }
 
           setResults(prev => prev.map(j => {
@@ -141,7 +144,7 @@ export default function FindJobs() {
         status: 'SAVED',
         dateAdded: Date.now()
       };
-      await jobService.saveJob(fullJob);
+      await jobService.saveJob(user.uid, fullJob);
       setSavedJobIds(prev => new Set(prev).add(job.id!));
     } catch (err) {
       console.error("Failed to save job", err);

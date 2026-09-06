@@ -1,4 +1,6 @@
-export type JobRecommendation = 'APPLY' | 'APPLY_WITH_CHANGES' | 'LOW_PRIORITY' | 'SKIP';
+import fs from 'fs';
+
+const content = `export type JobRecommendation = 'APPLY' | 'APPLY_WITH_CHANGES' | 'LOW_PRIORITY' | 'SKIP';
 
 export type JobStatus = 'DISCOVERED' | 'SAVED' | 'PREPARING' | 'READY_FOR_REVIEW' | 'APPLYING' | 'APPLIED' | 'INTERVIEW' | 'OFFER' | 'REJECTED';
 
@@ -117,3 +119,6 @@ export interface Application {
   updatedSummary?: string;
   emphasizedSkills?: string[];
 }
+`;
+
+fs.writeFileSync('src/types.ts', content);

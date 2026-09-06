@@ -2,13 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../AuthContext';
 import { Job, Application } from '../types';
 import { jobService } from '../services/jobService';
+import { applicationService } from '../services/applicationService';
+import { jobMatchService } from '../services/jobMatchService';
+import { SavedJob, Application, JobMatch, Job } from '../types';
 import { Plus, ExternalLink, Activity, FileText, Check, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import AnalyzeJobModal from './AnalyzeJobModal';
 
 export default function JobTracker() {
   const { user } = useAuth();
-  const [jobs, setJobs] = useState<Job[]>([]);
+  const [trackedJobs, setTrackedJobs] = useState<{saved: SavedJob, match: JobMatch | null, app: Application | null}[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAnalyzeModalOpen, setIsAnalyzeModalOpen] = useState(false);
   const [filter, setFilter] = useState<'ALL' | 'STRONG_MATCH' | 'APPLY_WITH_CHANGES' | 'LOW_PRIORITY' | 'APPLIED'>('ALL');
@@ -18,8 +21,25 @@ export default function JobTracker() {
     if (!user) return;
     setLoading(true);
     try {
-      const fetchedJobs = await jobService.getJobsForUser(user.uid);
-      setJobs(fetchedJobs.sort((a, b) => b.dateAdded - a.dateAdded));
+      const savedJobsList = await jobService.getSavedJobsForUser(user.uid);
+      
+      const apps = await applicationService.getApplicationsForUser(user.uid);
+      const appMap = new Map(apps.map(a => [a.jobId, a]));
+
+      // We need matches too. For now we can fetch individually or add a bulk get. 
+      // Let's add a bulk get in jobMatchService or just fetch in loop for simplicity in demo.
+      const matchPromises = savedJobsList.map(sj => jobMatchService.getMatch(user.uid, sj.jobId));
+      const matches = await Promise.all(matchPromises);
+      const matchMap = new Map();
+      matches.forEach(m => { if (m) matchMap.set(m.jobId, m); });
+
+      const combined = savedJobsList.map(sj => ({
+        saved: sj,
+        match: matchMap.get(sj.jobId) || null,
+        app: appMap.get(sj.jobId) || null
+      }));
+
+      setTrackedJobs(combined.sort((a, b) => b.saved.dateAdded - a.saved.dateAdded));
     } catch (err) {
       console.error(err);
     } finally {
@@ -35,12 +55,12 @@ export default function JobTracker() {
     fetchJobs();
   }, [user]);
 
-  const filteredJobs = jobs.filter(job => {
+  const filteredJobs = trackedJobs.filter(t => {
     if (filter === 'ALL') return true;
-    if (filter === 'STRONG_MATCH') return job.recommendation === 'APPLY';
-    if (filter === 'APPLY_WITH_CHANGES') return job.recommendation === 'APPLY_WITH_CHANGES';
-    if (filter === 'LOW_PRIORITY') return job.recommendation === 'LOW_PRIORITY';
-    if (filter === 'APPLIED') return ['APPLIED', 'INTERVIEW', 'OFFER'].includes(job.status);
+    if (filter === 'STRONG_MATCH') return t.match?.recommendation === 'APPLY';
+    if (filter === 'APPLY_WITH_CHANGES') return t.match?.recommendation === 'APPLY_WITH_CHANGES';
+    if (filter === 'LOW_PRIORITY') return t.match?.recommendation === 'LOW_PRIORITY';
+    if (filter === 'APPLIED') return t.app?.status && ['APPLIED', 'INTERVIEW', 'OFFER'].includes(t.app.status);
     return true;
   });
 
@@ -100,14 +120,14 @@ export default function JobTracker() {
                 </td>
               </tr>
             ) : (
-              filteredJobs.map(job => (
-                <tr key={job.id} className="hover:bg-slate-50 transition-colors">
+              filteredJobs.map(({ saved, match, app }) => (
+                <tr key={saved.id} className="hover:bg-slate-50 transition-colors">
                   <td className="p-4">
-                    <div className="font-medium text-slate-900">{job.title}</div>
+                    <div className="font-medium text-slate-900">{saved.job.title}</div>
                     <div className="text-sm text-slate-500 flex items-center gap-2 mt-1">
-                      {job.company}
-                      {job.url && (
-                        <a href={job.url} target="_blank" rel="noopener noreferrer" className="text-indigo-500 hover:underline inline-flex items-center">
+                      {saved.job.company}
+                      {saved.job.url && (
+                        <a href={saved.job.url} target="_blank" rel="noopener noreferrer" className="text-indigo-500 hover:underline inline-flex items-center">
                           <ExternalLink className="w-3 h-3 ml-1" />
                         </a>
                       )}
@@ -115,15 +135,15 @@ export default function JobTracker() {
                   </td>
                   <td className="p-4">
                     <div className="flex items-center gap-2">
-                      {job.matchScore !== undefined ? (
+                      {match?.matchScore !== undefined ? (
                         <>
                           <div className="w-full bg-slate-200 rounded-full h-2 max-w-[100px]">
                             <div 
-                               className={`h-2 rounded-full ${job.matchScore >= 80 ? 'bg-green-500' : job.matchScore >= 50 ? 'bg-amber-500' : 'bg-red-500'}`} 
-                               style={{ width: `${job.matchScore}%` }}
+                               className={`h-2 rounded-full ${match?.matchScore >= 80 ? 'bg-green-500' : match?.matchScore >= 50 ? 'bg-amber-500' : 'bg-red-500'}`} 
+                               style={{ width: `${match?.matchScore}%` }}
                             ></div>
                           </div>
-                          <span className="text-sm font-medium">{job.matchScore}%</span>
+                          <span className="text-sm font-medium">{match?.matchScore}%</span>
                         </>
                       ) : (
                         <span className="text-sm font-medium text-slate-400 italic">Not Analyzed</span>
@@ -132,20 +152,20 @@ export default function JobTracker() {
                   </td>
                   <td className="p-4">
                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${
-                      job.recommendation === 'APPLY' ? 'bg-green-100 text-green-700' : 
-                      job.recommendation === 'APPLY_WITH_CHANGES' ? 'bg-yellow-100 text-yellow-700' : 
-                      job.recommendation === 'LOW_PRIORITY' ? 'bg-orange-100 text-orange-700' :
+                      match?.recommendation === 'APPLY' ? 'bg-green-100 text-green-700' : 
+                      match?.recommendation === 'APPLY_WITH_CHANGES' ? 'bg-yellow-100 text-yellow-700' : 
+                      match?.recommendation === 'LOW_PRIORITY' ? 'bg-orange-100 text-orange-700' :
                       'bg-slate-100 text-slate-500'
                     }`}>
-                      {job.recommendation ? job.recommendation.replace(/_/g, ' ') : 'UNKNOWN'}
+                      {match?.recommendation ? match?.recommendation.replace(/_/g, ' ') : 'UNKNOWN'}
                     </span>
                   </td>
                   <td className="p-4">
                     <select
-                      value={job.status}
+                      value={app?.status || 'SAVED'}
                       onChange={async (e) => {
                         const newStatus = e.target.value;
-                        await jobService.updateJob(job.id!, { status: newStatus as Job['status'] });
+                        await applicationService.updateApplicationStatus(user.uid, saved.jobId, newStatus as any);
                         fetchJobs();
                       }}
                       className="text-sm font-medium text-slate-700 bg-slate-100 px-2 py-1 rounded-md border-none outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
@@ -160,7 +180,7 @@ export default function JobTracker() {
                   </td>
                   <td className="p-4 text-right">
                     <button
-                      onClick={() => navigate(`/workspace/${job.id}`)}
+                      onClick={() => navigate(`/workspace/${saved.jobId}`)}
                       className="inline-flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-lg text-sm font-medium hover:bg-indigo-100 transition-colors"
                     >
                       <FileText className="w-4 h-4" />

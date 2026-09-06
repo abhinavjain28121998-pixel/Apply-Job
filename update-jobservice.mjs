@@ -1,4 +1,6 @@
-import { collection, query, where, getDocs, doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
+import fs from 'fs';
+
+const content = `import { collection, query, where, getDocs, doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '../firebase';
 import { SavedJob, Job, JobMatch } from '../types';
 
@@ -26,7 +28,7 @@ export const jobService = {
   },
   
   getSavedJob: async (userId: string, jobId: string): Promise<SavedJob | null> => {
-    const docId = `${userId}_${jobId}`;
+    const docId = \`\${userId}_\${jobId}\`;
     if (isFirebaseConfigured() && db) {
       const docSnap = await getDoc(doc(db, 'saved_jobs', docId));
       if (docSnap.exists()) {
@@ -39,7 +41,7 @@ export const jobService = {
   },
   
   saveJob: async (userId: string, job: Job): Promise<SavedJob> => {
-    const docId = `${userId}_${job.id}`;
+    const docId = \`\${userId}_\${job.id}\`;
     const savedJob: SavedJob = {
       id: docId,
       userId,
@@ -61,7 +63,7 @@ export const jobService = {
   },
 
   updateSavedJob: async (userId: string, jobId: string, updates: Partial<SavedJob>): Promise<void> => {
-    const docId = `${userId}_${jobId}`;
+    const docId = \`\${userId}_\${jobId}\`;
     if (isFirebaseConfigured() && db) {
       await updateDoc(doc(db, 'saved_jobs', docId), updates as any);
     } else {
@@ -74,3 +76,6 @@ export const jobService = {
     }
   }
 };
+`;
+
+fs.writeFileSync('src/services/jobService.ts', content);

@@ -1,4 +1,6 @@
-import { GoogleGenAI } from '@google/genai';
+import fs from 'fs';
+
+const content = `import { GoogleGenAI } from '@google/genai';
 import { JobRecommendation } from '../types.js';
 
 export interface MatchEvidence {
@@ -61,7 +63,7 @@ export class MatchingService {
       return this.fallbackAnalysis(jobDescription, baseCv);
     }
 
-    const prompt = `You are an expert technical recruiter and career coach.
+    const prompt = \`You are an expert technical recruiter and career coach.
 Analyze the following job description against the provided CV.
 Extract the match evaluation into a precise JSON structure.
 
@@ -88,10 +90,10 @@ Return a JSON object matching this schema exactly:
 }
 
 Job Description:
-${jobDescription}
+\${jobDescription}
 
 My CV:
-${baseCv}`;
+\${baseCv}\`;
 
     try {
       const response = await this.ai.models.generateContent({
@@ -246,8 +248,8 @@ ${baseCv}`;
 
     return {
       matchScore: score,
-      matchExplanation: `Match Score: ${score}/100. ${missingCritical.length > 0 ? 'Missing critical requirements.' : 'Good overall fit.'}`,
-      skillsMatch: `${matchedSkills.length} matched, ${missingRequired.length} required missing.`,
+      matchExplanation: \`Match Score: \${score}/100. \${missingCritical.length > 0 ? 'Missing critical requirements.' : 'Good overall fit.'}\`,
+      skillsMatch: \`\${matchedSkills.length} matched, \${missingRequired.length} required missing.\`,
       experienceMatch: evaluation.experience?.evidence || 'N/A',
       seniorityMatch: evaluation.seniority?.evidence || 'N/A',
       industryMatch: evaluation.industry?.evidence || 'N/A',
@@ -262,3 +264,6 @@ ${baseCv}`;
     };
   }
 }
+`;
+
+fs.writeFileSync('src/services/matchingService.ts', content);

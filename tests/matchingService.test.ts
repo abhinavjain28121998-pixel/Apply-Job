@@ -13,15 +13,15 @@ describe('MatchingService Deterministic Scoring', () => {
         { requirement: 'React', importance: 'REQUIRED', matchLevel: 'MATCHED' },
         { requirement: 'TypeScript', importance: 'PREFERRED', matchLevel: 'MATCHED' }
       ],
-      experience: { matchLevel: 'MATCHED' },
-      seniority: { matchLevel: 'MATCHED' },
+      experience: { requirement: 'Req', matchLevel: 'MATCHED' },
+      seniority: { requirement: 'Req', matchLevel: 'MATCHED' },
       responsibilities: [
-        { matchLevel: 'MATCHED' }
+        { requirement: 'Req', matchLevel: 'MATCHED' }
       ],
-      industry: { matchLevel: 'MATCHED' },
-      education: { matchLevel: 'MATCHED' },
-      location: { matchLevel: 'MATCHED' },
-      otherFit: { matchLevel: 'MATCHED' }
+      industry: { requirement: 'Req', matchLevel: 'MATCHED' },
+      education: { requirement: 'Req', matchLevel: 'MATCHED' },
+      location: { requirement: 'Req', matchLevel: 'MATCHED' },
+      otherFit: { requirement: 'Req', matchLevel: 'MATCHED' }
     };
 
     const result = matchingService.calculateDeterministicScore(evalMock);
@@ -35,20 +35,20 @@ describe('MatchingService Deterministic Scoring', () => {
         { requirement: 'React', importance: 'REQUIRED', matchLevel: 'MISSING' },
         { requirement: 'TypeScript', importance: 'PREFERRED', matchLevel: 'UNCLEAR' }
       ],
-      experience: { matchLevel: 'MISSING' },
-      seniority: { matchLevel: 'MATCHED' },
+      experience: { requirement: 'Req', matchLevel: 'MISSING' },
+      seniority: { requirement: 'Req', matchLevel: 'MATCHED' },
       responsibilities: [
-        { matchLevel: 'MATCHED' }
+        { requirement: 'Req', matchLevel: 'MATCHED' }
       ],
-      industry: { matchLevel: 'MATCHED' },
-      education: { matchLevel: 'MATCHED' },
-      location: { matchLevel: 'MATCHED' },
-      otherFit: { matchLevel: 'MATCHED' }
+      industry: { requirement: 'Req', matchLevel: 'MATCHED' },
+      education: { requirement: 'Req', matchLevel: 'MATCHED' },
+      location: { requirement: 'Req', matchLevel: 'MATCHED' },
+      otherFit: { requirement: 'Req', matchLevel: 'MATCHED' }
     };
 
     const result = matchingService.calculateDeterministicScore(evalMock);
     expect(result.matchScore).toBeLessThan(70);
-    expect(result.recommendation).toBe('SKIP'); // because missing required skills
+    expect(result.recommendation).toBe('LOW_PRIORITY');
     expect(result.missingRequiredSkills).toContain('React');
   });
 
@@ -57,15 +57,15 @@ describe('MatchingService Deterministic Scoring', () => {
       skills: [
         { requirement: 'React', importance: 'REQUIRED', matchLevel: 'MATCHED' },
       ],
-      experience: { matchLevel: 'MISSING' },
-      seniority: { matchLevel: 'MISSING' },
+      experience: { requirement: 'Req', matchLevel: 'MISSING' },
+      seniority: { requirement: 'Req', matchLevel: 'MISSING' },
       responsibilities: [
-        { matchLevel: 'MISSING' }
+        { requirement: 'Req', matchLevel: 'MISSING' }
       ],
-      industry: { matchLevel: 'MISSING' },
-      education: { matchLevel: 'MISSING' },
-      location: { matchLevel: 'MISSING' },
-      otherFit: { matchLevel: 'MISSING' }
+      industry: { requirement: 'Req', matchLevel: 'MISSING' },
+      education: { requirement: 'Req', matchLevel: 'MISSING' },
+      location: { requirement: 'Req', matchLevel: 'MISSING' },
+      otherFit: { requirement: 'Req', matchLevel: 'MISSING' }
     };
 
     const result = matchingService.calculateDeterministicScore(evalMock);
@@ -78,15 +78,15 @@ describe('MatchingService Deterministic Scoring', () => {
       skills: [
         { requirement: 'React', importance: 'REQUIRED', matchLevel: 'MATCHED' },
       ],
-      experience: { matchLevel: 'MISSING' },
-      seniority: { matchLevel: 'MATCHED' }, // 15
+      experience: { requirement: 'Req', matchLevel: 'MISSING' },
+      seniority: { requirement: 'Req', matchLevel: 'MATCHED' }, // 15
       responsibilities: [
-        { matchLevel: 'MISSING' }
+        { requirement: 'Req', matchLevel: 'MISSING' }
       ],
-      industry: { matchLevel: 'MISSING' },
-      education: { matchLevel: 'MISSING' },
-      location: { matchLevel: 'MISSING' },
-      otherFit: { matchLevel: 'MISSING' }
+      industry: { requirement: 'Req', matchLevel: 'MISSING' },
+      education: { requirement: 'Req', matchLevel: 'MISSING' },
+      location: { requirement: 'Req', matchLevel: 'MISSING' },
+      otherFit: { requirement: 'Req', matchLevel: 'MISSING' }
     };
 
     const result = matchingService.calculateDeterministicScore(evalMock);

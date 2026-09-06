@@ -4,6 +4,9 @@ import { useAuth } from '../AuthContext';
 import { Job } from '../types';
 import { resumeService } from '../services/resumeService';
 import { jobService } from '../services/jobService';
+import { applicationService } from '../services/applicationService';
+import { jobMatchService } from '../services/jobMatchService';
+import { SavedJob, JobMatch, Application } from '../types';
 import { calculateApplicationReadiness } from '../services/applicationReadinessService';
 import { CheckCircle2, ChevronLeft, AlertTriangle, ExternalLink, RefreshCw, FileText, FileSignature, Save, MessageSquare, Briefcase, Loader2, Info } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -25,25 +28,33 @@ export default function ApplicationWorkspace() {
     const fetchJob = async () => {
       setLoading(true);
       try {
-        if (!id) return;
-        const jobData = await jobService.getJobById(id);
-        if (jobData && jobData.userId === user?.uid) {
-          setJob(jobData);
-          if (jobData.coverLetter) setCoverLetter(jobData.coverLetter);
-          if (jobData.applicationAnswers) setAnswers(jobData.applicationAnswers);
-          if (jobData.bulletImprovements) setImprovements(jobData.bulletImprovements);
-        } else {
-          setJob(null);
+        if (!id || !user) return;
+        const savedJobData = await jobService.getSavedJob(user.uid, id);
+        if (savedJobData) {
+          const matchData = await jobMatchService.getMatch(user.uid, id);
+          const appData = await applicationService.getApplication(user.uid, id);
+          
+          // Construct a UI friendly job object
+          const combined: Partial<Job> = {
+            ...savedJobData.job,
+            ...matchData,
+            ...appData,
+            status: appData?.status || 'SAVED'
+          };
+          setJob(combined);
+          
+          if (appData?.coverLetter) setCoverLetter(appData.coverLetter);
+          if (appData?.applicationAnswers) setAnswers(appData.applicationAnswers);
+          if (appData?.bulletImprovements) setImprovements(appData.bulletImprovements);
+          if (appData?.tailoredCv) setTailoredCv(appData.tailoredCv);
         }
-      } catch (e) {
-        console.error(e);
+      } catch (err) {
+        console.error(err);
       } finally {
         setLoading(false);
       }
     };
-    if (user) {
-      fetchJob();
-    }
+    fetchJob();
   }, [id, user]);
 
   const saveJobState = async (updates: Partial<Job>) => {

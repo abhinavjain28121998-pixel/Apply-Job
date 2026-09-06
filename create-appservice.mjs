@@ -1,4 +1,6 @@
-import { collection, query, where, getDocs, doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
+import fs from 'fs';
+
+const content = `import { collection, query, where, getDocs, doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '../firebase';
 import { Application, JobStatus } from '../types';
 
@@ -26,7 +28,7 @@ export const applicationService = {
   },
   
   getApplication: async (userId: string, jobId: string): Promise<Application | null> => {
-    const docId = `${userId}_${jobId}`;
+    const docId = \`\${userId}_\${jobId}\`;
     if (isFirebaseConfigured() && db) {
       const docSnap = await getDoc(doc(db, 'applications', docId));
       if (docSnap.exists()) {
@@ -39,7 +41,7 @@ export const applicationService = {
   },
   
   createOrUpdateApplication: async (userId: string, jobId: string, data: Partial<Application>): Promise<Application> => {
-    const docId = `${userId}_${jobId}`;
+    const docId = \`\${userId}_\${jobId}\`;
     const existing = await applicationService.getApplication(userId, jobId);
     
     let app: Application;
@@ -69,7 +71,7 @@ export const applicationService = {
   },
   
   updateApplicationStatus: async (userId: string, jobId: string, status: JobStatus): Promise<void> => {
-    const docId = `${userId}_${jobId}`;
+    const docId = \`\${userId}_\${jobId}\`;
     const updates = { status, ...(status === 'APPLIED' ? { dateApplied: Date.now() } : {}) };
     
     if (isFirebaseConfigured() && db) {
@@ -91,3 +93,6 @@ export const applicationService = {
     }
   }
 };
+`;
+
+fs.writeFileSync('src/services/applicationService.ts', content);

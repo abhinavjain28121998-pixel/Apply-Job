@@ -1,12 +1,19 @@
 import fs from 'fs';
 let content = fs.readFileSync('src/components/FindJobs.tsx', 'utf8');
 
-// Stop auto-analyzing search results in Demo Mode unless explicitly requested
-// Replace the analyzeJobsSequentially call in handleSearch
 content = content.replace(
-  /if \(baseCv\) \{\s*analyzeJobsSequentially\(newJobs\);\s*\}/g,
-  `// Auto-analysis is disabled to avoid hitting rate limits on search
-        // Users can analyze individual jobs from the Workspace`
+  /await jobService\.updateSavedJob\(user\.uid, job\.id!, \{ job: \{ \.\.\.\(savedJobs\.get\(job\.id!\) \|\| job\), \.\.\.analysis \} as any \}\);/g,
+  `await jobMatchService.saveMatch({ ...analysis, jobId: job.id!, userId: user.uid, id: '' } as any);`
+);
+
+content = content.replace(
+  /import \{ jobService \} from '\.\.\/services\/jobService';/g,
+  `import { jobService } from '../services/jobService';\nimport { jobMatchService } from '../services/jobMatchService';`
+);
+
+content = content.replace(
+  /await saveJob\(\{ \.\.\.job, \.\.\.analysis \}\);/g,
+  `await saveJob(job);\n             await jobMatchService.saveMatch({ ...analysis, jobId: job.id!, userId: user.uid, id: '' } as any);`
 );
 
 fs.writeFileSync('src/components/FindJobs.tsx', content);
