@@ -33,8 +33,7 @@ export default function ApplicationWorkspace() {
       setLoading(true);
       try {
         if (!id || !user) return;
-        const profileData = await resumeService.getProfile(user.uid);
-        setProfile(profileData);
+        
         const savedJobData = await jobService.getSavedJob(user.uid, id);
         if (savedJobData) {
           const matchData = await jobMatchService.getMatch(user.uid, id);
@@ -61,8 +60,7 @@ export default function ApplicationWorkspace() {
 
   const saveAppState = async (updates: Partial<Application>) => {
     if (!id || !user) return;
-        const profileData = await resumeService.getProfile(user.uid);
-        setProfile(profileData);
+        
     try {
       const updatedApp = await applicationService.createOrUpdateApplication(user.uid, id, updates);
       setApp(updatedApp);
@@ -73,7 +71,7 @@ export default function ApplicationWorkspace() {
   };
 
   const handleAnalyzeJob = async () => {
-    if (!job || !user) return;
+    if (!savedJob?.job || !user) return;
     setGenerating('analysis');
     try {
       const profile = await resumeService.getProfile(user.uid);
@@ -81,7 +79,7 @@ export default function ApplicationWorkspace() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          jobDescription: job.description,
+          jobDescription: savedJob?.job?.description,
           baseCv: profile.baseCvText
         })
       });
@@ -97,7 +95,7 @@ export default function ApplicationWorkspace() {
   };
 
   const handleGenerateCoverLetter = async () => {
-    if (!job || !user) return;
+    if (!savedJob?.job || !user) return;
     setGenerating('coverLetter');
     try {
       const profile = await resumeService.getProfile(user.uid);
@@ -105,10 +103,10 @@ export default function ApplicationWorkspace() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          jobDescription: job.description,
+          jobDescription: savedJob?.job?.description,
           baseCv: profile.baseCvText,
-          company: job.company,
-          title: job.title
+          company: savedJob?.job?.company,
+          title: savedJob?.job?.title
         })
       });
       if (res.ok) {
@@ -124,7 +122,7 @@ export default function ApplicationWorkspace() {
   };
 
   const handleGenerateAnswers = async () => {
-    if (!job || !user) return;
+    if (!savedJob?.job || !user) return;
     setGenerating('answers');
     try {
       const profile = await resumeService.getProfile(user.uid);
@@ -132,10 +130,10 @@ export default function ApplicationWorkspace() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          jobDescription: job.description,
+          jobDescription: savedJob?.job?.description,
           baseCv: profile.baseCvText,
-          company: job.company,
-          title: job.title
+          company: savedJob?.job?.company,
+          title: savedJob?.job?.title
         })
       });
       if (res.ok) {
@@ -151,7 +149,7 @@ export default function ApplicationWorkspace() {
   };
 
   const handleTailorResume = async () => {
-    if (!job || !user) return;
+    if (!savedJob?.job || !user) return;
     setGenerating('tailor');
     try {
       const profile = await resumeService.getProfile(user.uid);
@@ -159,10 +157,10 @@ export default function ApplicationWorkspace() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          jobDescription: job.description,
+          jobDescription: savedJob?.job?.description,
           baseCv: profile.baseCvText,
-          company: job.company,
-          title: job.title
+          company: savedJob?.job?.company,
+          title: savedJob?.job?.title
         })
       });
       if (res.ok) {
@@ -198,7 +196,7 @@ export default function ApplicationWorkspace() {
   };
 
   if (loading) return <div className="p-8 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-indigo-600" /></div>;
-  if (!job) return <div className="p-8 text-center text-slate-500">Job not found</div>;
+  if (!savedJob?.job) return <div className="p-8 text-center text-slate-500">Job not found</div>;
 
 
   // We need to parse out the individual pieces that were merged into "job".
@@ -225,10 +223,10 @@ export default function ApplicationWorkspace() {
                 <Briefcase className="w-5 h-5 text-indigo-600" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-slate-900">{job.title}</h1>
+                <h1 className="text-2xl font-bold text-slate-900">{savedJob?.job?.title}</h1>
                 <div className="flex items-center gap-2 text-slate-600 mt-1 text-sm font-medium">
-                  <span>{job.company}</span>
-                  {job.location && <><span className="text-slate-300">•</span><span>{job.location}</span></>}
+                  <span>{savedJob?.job?.company}</span>
+                  {savedJob?.job?.location && <><span className="text-slate-300">•</span><span>{savedJob?.job?.location}</span></>}
                 </div>
               </div>
             </div>
@@ -237,10 +235,10 @@ export default function ApplicationWorkspace() {
           <div className="flex items-center gap-6">
             {/* Match Score */}
             <div className="flex flex-col items-center justify-center bg-slate-50 border border-slate-200 rounded-xl p-3 min-w-[100px]">
-              {job.matchScore !== undefined ? (
+              {match?.matchScore !== undefined ? (
                 <>
-                  <span className={`text-3xl font-bold ${job.matchScore >= 80 ? 'text-green-600' : job.matchScore >= 50 ? 'text-amber-500' : 'text-red-500'}`}>
-                    {job.matchScore}%
+                  <span className={`text-3xl font-bold ${match?.matchScore >= 80 ? 'text-green-600' : match?.matchScore >= 50 ? 'text-amber-500' : 'text-red-500'}`}>
+                    {match?.matchScore}%
                   </span>
                   <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1">Match</div>
                 </>
@@ -268,14 +266,14 @@ export default function ApplicationWorkspace() {
             {/* Apply Action */}
             <div className="flex flex-col gap-2">
               <a 
-                href={job.url} 
+                href={savedJob?.job?.url} 
                 target="_blank" 
                 rel="noopener noreferrer"
                 className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg shadow-sm transition-colors flex items-center gap-2 justify-center"
               >
                 Apply Externally <ExternalLink className="w-4 h-4" />
               </a>
-              {job.status !== 'APPLIED' && (
+              {app?.status !== 'APPLIED' && (
                 <button 
                   onClick={markAsApplied}
                   className="px-6 py-2 bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 font-medium rounded-lg transition-colors flex items-center gap-2 justify-center text-sm"
@@ -306,22 +304,22 @@ export default function ApplicationWorkspace() {
             <h2 className="text-lg font-bold text-slate-800 mb-4 border-b border-slate-100 pb-3 flex items-center gap-2">
               <CheckCircle2 className="w-5 h-5 text-green-600" /> Fit Analysis
             </h2>
-            {job.matchScore === undefined ? (
+            {match?.matchScore === undefined ? (
               <p className="text-sm text-slate-500 italic">Analyze the job to see requirements fit.</p>
             ) : (
               <div className="space-y-4">
-                <p className="text-sm text-slate-700 leading-relaxed font-medium">{job.matchExplanation}</p>
+                <p className="text-sm text-slate-700 leading-relaxed font-medium">{match?.matchExplanation}</p>
                 <div>
                   <h4 className="text-xs font-bold text-green-700 uppercase tracking-wider mb-2">Matched</h4>
                   <div className="flex flex-wrap gap-1.5">
-                    {job.matchedSkills?.map(s => <span key={s} className="px-2 py-1 bg-green-50 text-green-700 text-xs font-medium rounded border border-green-100">{s}</span>)}
+                    {match?.matchedSkills?.map(s => <span key={s} className="px-2 py-1 bg-green-50 text-green-700 text-xs font-medium rounded border border-green-100">{s}</span>)}
                   </div>
                 </div>
-                {job.missingRequiredSkills && job.missingRequiredSkills.length > 0 && (
+                {match?.missingRequiredSkills && match?.missingRequiredSkills.length > 0 && (
                   <div>
                     <h4 className="text-xs font-bold text-red-700 uppercase tracking-wider mb-2">Missing Requirements</h4>
                     <div className="flex flex-wrap gap-1.5">
-                      {job.missingRequiredSkills.map(s => <span key={s} className="px-2 py-1 bg-red-50 text-red-700 text-xs font-medium rounded border border-red-100">{s}</span>)}
+                      {match?.missingRequiredSkills.map(s => <span key={s} className="px-2 py-1 bg-red-50 text-red-700 text-xs font-medium rounded border border-red-100">{s}</span>)}
                     </div>
                   </div>
                 )}
@@ -334,7 +332,7 @@ export default function ApplicationWorkspace() {
               <FileText className="w-5 h-5 text-slate-500" /> Job Description
             </h2>
             <div className="prose prose-sm max-w-none text-slate-600 whitespace-pre-wrap line-clamp-[20] overflow-y-auto max-h-[500px] pr-2 custom-scrollbar">
-              {job.description}
+              {savedJob?.job?.description}
             </div>
           </div>
         </div>

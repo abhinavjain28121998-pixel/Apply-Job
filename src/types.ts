@@ -111,7 +111,7 @@ export interface JobMatch {
   id: string; // Typically same as jobId or composite
   userId: string;
   jobId: string;
-  matchScore: number;
+  matchScore?: number | null;
   confidenceScore?: number; // 0-100 based on evidence coverage
   matchExplanation: string;
   matchedSkills: string[];
@@ -148,4 +148,13 @@ export interface Application {
   bulletImprovements?: { original: string; suggested: string; reason: string; keywordTarget?: string }[];
   updatedSummary?: string;
   emphasizedSkills?: string[];
+}
+
+export interface ResumeEvidence {
+  skills: string[];
+  experience: string;
+  education: string;
+  certifications: string[];
+  industries: string[];
+  other: string;
 }

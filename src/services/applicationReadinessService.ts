@@ -10,18 +10,24 @@ export const calculateApplicationReadiness = (
   const reasons: string[] = [];
 
   // 1. Is Resume/Profile state valid?
-  if (profile && profile.baseCvText && profile.baseCvText.length > 50) {
+  // Structural validation: has baseCvText, and has either workHistory or skills populated
+  const hasBasicCv = profile && profile.baseCvText && profile.baseCvText.length > 50;
+  const hasWorkHistory = profile && profile.workHistory && profile.workHistory.length > 0;
+  const hasSkills = profile && profile.skills && profile.skills.length > 0;
+  
+  if (hasBasicCv && (hasWorkHistory || hasSkills)) {
     score += 10;
   } else {
-    reasons.push("Base CV/Profile missing or too short");
+    reasons.push("Profile is incomplete (missing work history or skills)");
   }
 
   // 2. Is Job Analyzed?
-  if (match && match.analysisStatus === 'READY' && match.matchScore !== undefined) {
+  if (match && match.analysisStatus === 'READY' && match.matchScore !== undefined && match.matchScore !== null) {
     score += 20;
   } else if (match && match.analysisStatus === 'ANALYSIS_UNAVAILABLE') {
-    // If unavailable but it's deterministically scored
-    score += 20; // Assume we have the deterministic fallback
+    reasons.push("Analysis unavailable");
+  } else if (match && match.analysisStatus === 'ANALYSIS_FAILED') {
+    reasons.push("Analysis failed");
   } else {
     reasons.push("Job not analyzed");
   }

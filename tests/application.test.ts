@@ -14,7 +14,7 @@ describe('calculateApplicationReadiness', () => {
     const job: Partial<Job> = { title: 'T', company: 'C' };
     const match = { analysisStatus: 'READY', matchScore: 80 } as JobMatch;
     const app = { tailoredCv: 'Some cv', coverLetter: 'Some letter', applicationAnswers: { why: 'Because' } } as Application;
-    const profile = { baseCvText: 'This is a long base CV text to ensure it passes the length requirement.' } as UserProfile;
+    const profile = { baseCvText: 'This is a long base CV text to ensure it passes the length requirement.', skills: ['React'] } as UserProfile;
     
     const result = calculateApplicationReadiness(job, match, app, profile);
     expect(result.score).toBe(100);
@@ -24,7 +24,7 @@ describe('calculateApplicationReadiness', () => {
   it('readiness with no application', () => {
     const job: Partial<Job> = { title: 'T', company: 'C' };
     const match = { analysisStatus: 'READY', matchScore: 80 } as JobMatch;
-    const profile = { baseCvText: 'This is a long base CV text to ensure it passes the length requirement.' } as UserProfile;
+    const profile = { baseCvText: 'This is a long base CV text to ensure it passes the length requirement.', skills: ['React'] } as UserProfile;
     
     const result = calculateApplicationReadiness(job, match, null, profile);
     // Should be missing tailoredCv (25), coverLetter (20), answers (15) -> Total score 40
