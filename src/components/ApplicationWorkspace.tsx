@@ -85,7 +85,9 @@ export default function ApplicationWorkspace() {
       });
       if (res.ok) {
         const analysis = await res.json();
-        await saveJobState(analysis);
+        const newMatch = { ...analysis, jobId: id!, userId: user.uid };
+        await jobMatchService.saveMatch(newMatch);
+        setMatch(newMatch);
       }
     } catch (e) {
       console.error(e);
@@ -112,7 +114,7 @@ export default function ApplicationWorkspace() {
       if (res.ok) {
         const text = await res.text();
         setCoverLetter(text);
-        await saveJobState({ coverLetter: text });
+        await saveAppState({ coverLetter: text });
       }
     } catch (e) {
       console.error(e);
@@ -139,7 +141,7 @@ export default function ApplicationWorkspace() {
       if (res.ok) {
         const data = await res.json();
         setAnswers(data);
-        await saveJobState({ applicationAnswers: data });
+        await saveAppState({ applicationAnswers: data });
       }
     } catch (e) {
       console.error(e);
@@ -171,13 +173,13 @@ export default function ApplicationWorkspace() {
           updatedSummary: data.updatedSummary,
           emphasizedSkills: data.emphasizedSkills
         };
-        await saveJobState(updates);
+        await saveAppState(updates);
         if (data.bulletImprovements) {
           setImprovements(data.bulletImprovements.map((b: any) => ({ ...b, status: 'PENDING' })));
         }
         if (!coverLetter && data.coverLetter) {
           setCoverLetter(data.coverLetter);
-          await saveJobState({ ...updates, coverLetter: data.coverLetter });
+          await saveAppState({ ...updates, coverLetter: data.coverLetter });
         }
       }
     } catch (e) {
@@ -188,7 +190,7 @@ export default function ApplicationWorkspace() {
   };
 
   const markAsApplied = async () => {
-    await saveJobState({
+    await saveAppState({
       status: 'APPLIED',
       dateApplied: Date.now()
     });
@@ -372,7 +374,7 @@ export default function ApplicationWorkspace() {
                 ))}
                 {Object.keys(answers).length > 0 && (
                   <div className="flex justify-end mt-4">
-                    <button onClick={() => saveJobState({ applicationAnswers: answers })} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-medium rounded-lg flex items-center gap-2 text-sm">
+                    <button onClick={() => saveAppState({ applicationAnswers: answers })} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-medium rounded-lg flex items-center gap-2 text-sm">
                       <Save className="w-4 h-4" /> Save Edits
                     </button>
                   </div>
@@ -481,7 +483,7 @@ export default function ApplicationWorkspace() {
                 />
                 {coverLetter && (
                   <div className="flex justify-end">
-                    <button onClick={() => saveJobState({ coverLetter })} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-medium rounded-lg flex items-center gap-2 text-sm">
+                    <button onClick={() => saveAppState({ coverLetter })} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-medium rounded-lg flex items-center gap-2 text-sm">
                       <Save className="w-4 h-4" /> Save Edits
                     </button>
                   </div>

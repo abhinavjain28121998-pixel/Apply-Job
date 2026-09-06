@@ -29,14 +29,14 @@ export const jobMatchService = {
   
   saveMatch: async (match: JobMatch): Promise<void> => {
     const docId = `${match.userId}_${match.jobId}`; // Kept unique by composite because user can only have one match report per job
-    match.id = docId;
+    const matchToSave = { ...match, id: docId, analyzedAt: Date.now() };
     if (isFirebaseConfigured() && db) {
-      await setDoc(doc(db, 'job_matches', docId), match);
+      await setDoc(doc(db, 'job_matches', docId), matchToSave);
     } else {
       const matches = getLocalMatches();
       const idx = matches.findIndex(m => m.id === docId);
-      if (idx >= 0) matches[idx] = match;
-      else matches.push(match);
+      if (idx >= 0) matches[idx] = matchToSave;
+      else matches.push(matchToSave);
       setLocalMatches(matches);
     }
   }

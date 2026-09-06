@@ -12,6 +12,7 @@ export interface JobMatchResult {
   analysisStatus: 'READY' | 'ANALYSIS_UNAVAILABLE' | 'ANALYSIS_FAILED';
   matchScore?: number | null;
   confidenceScore: number;
+  confidenceLevel?: 'HIGH' | 'MEDIUM' | 'LOW';
   matchExplanation: string;
   skillsMatch: string;
   experienceMatch: string;
@@ -213,6 +214,7 @@ Return a JSON array where each object matches:
       analysisStatus: 'ANALYSIS_UNAVAILABLE',
       matchScore: null,
       confidenceScore: 0,
+      confidenceLevel: 'LOW',
       matchExplanation: "Analysis is unavailable due to missing API configuration.",
       skillsMatch: "N/A",
       experienceMatch: "N/A",
@@ -234,6 +236,7 @@ Return a JSON array where each object matches:
       analysisStatus: 'ANALYSIS_FAILED',
       matchScore: null,
       confidenceScore: 0,
+      confidenceLevel: 'LOW',
       matchExplanation: "Analysis failed due to a processing error.",
       skillsMatch: "N/A",
       experienceMatch: "N/A",
@@ -284,26 +287,52 @@ Return a JSON array where each object matches:
       
       let reqEarned = 0;
 
-      if (req.matchLevel === 'MATCHED') {
+      // Override matchLevel based on numeric experience if available
+      let effectiveMatchLevel = req.matchLevel;
+      if (req.category === 'EXPERIENCE' && typeof req.requiredYears === 'number') {
+        const candidateYears = typeof req.candidateYears === 'number' ? req.candidateYears : (evidence?.experience?.totalYears || 0);
+        if (candidateYears >= req.requiredYears) {
+          effectiveMatchLevel = 'MATCHED';
+        } else if (candidateYears > 0 && candidateYears >= (req.requiredYears * 0.5)) {
+          effectiveMatchLevel = 'UNCLEAR'; // Partial match
+        } else if (candidateYears === 0 && req.matchLevel === 'UNCLEAR') {
+          effectiveMatchLevel = 'UNCLEAR';
+        } else {
+          effectiveMatchLevel = 'MISSING';
+        }
+      }
+
+      if (effectiveMatchLevel === 'MATCHED') {
         if (req.category === 'EXPERIENCE' && typeof req.requiredYears === 'number') {
-          // Proportional scoring for experience
-          const candidateYears = typeof req.candidateYears === 'number' ? req.candidateYears : (evidence?.experience?.totalYears || 0);
-          if (candidateYears >= req.requiredYears) {
-            reqEarned = weight;
-          } else if (candidateYears > 0) {
-            reqEarned = weight * (candidateYears / req.requiredYears);
-          } else {
-            reqEarned = 0;
-          }
+          reqEarned = weight;
         } else {
           reqEarned = weight;
         }
         evidenceAvailableCount++;
         if (req.category === 'SKILL') matchedSkills.push(req.text);
-      } else if (req.matchLevel === 'UNCLEAR') {
-        reqEarned = (weight * 0.4);
+      } else if (effectiveMatchLevel === 'UNCLEAR') {
+        if (req.category === 'EXPERIENCE' && typeof req.requiredYears === 'number') {
+          const candidateYears = typeof req.candidateYears === 'number' ? req.candidateYears : (evidence?.experience?.totalYears || 0);
+          if (candidateYears > 0) {
+            reqEarned = weight * (candidateYears / req.requiredYears);
+          } else {
+            reqEarned = (weight * 0.4);
+          }
+        } else {
+          reqEarned = (weight * 0.4);
+        }
         unclearCount++;
-      } else if (req.matchLevel === 'MISSING') {
+      } else if (effectiveMatchLevel === 'MISSING') {
+        if (req.category === 'EXPERIENCE' && typeof req.requiredYears === 'number') {
+          const candidateYears = typeof req.candidateYears === 'number' ? req.candidateYears : (evidence?.experience?.totalYears || 0);
+          if (candidateYears > 0) {
+            if (candidateYears > 0) {
+            reqEarned = weight * (candidateYears / req.requiredYears);
+          } else {
+            reqEarned = (weight * 0.4);
+          }
+          }
+        }
         if (req.critical) missingCritical.push(req.text);
         if (req.importance === 'REQUIRED') missingRequired.push(req.text);
         if (req.importance === 'PREFERRED') missingNiceToHave.push(req.text);
@@ -330,6 +359,10 @@ Return a JSON array where each object matches:
       
       confidenceScore = Math.max(0, Math.round(100 - penalty));
     }
+    
+    let confidenceLevel: 'HIGH' | 'MEDIUM' | 'LOW' = 'HIGH';
+    if (confidenceScore < 50) confidenceLevel = 'LOW';
+    else if (confidenceScore < 80) confidenceLevel = 'MEDIUM';
 
     let recommendation: JobRecommendation = 'APPLY';
     if (missingCritical.length > 0) {
@@ -346,6 +379,7 @@ Return a JSON array where each object matches:
       analysisStatus,
       matchScore: score,
       confidenceScore,
+      confidenceLevel,
       matchExplanation: `Match Score: ${score !== null ? score : 'N/A'}/100. ${missingCritical.length > 0 ? 'Missing critical requirements.' : 'Good overall fit.'}`,
       skillsMatch: `${matchedSkills.length} matched, ${missingRequired.length} required missing.`,
       experienceMatch: "Check details",

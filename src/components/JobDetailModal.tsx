@@ -1,17 +1,18 @@
 import React, { useState } from 'react';
-import { Job } from '../types';
+import { Job, JobMatch } from '../types';
 import { X, MapPin, Briefcase, IndianRupee, Clock, CheckCircle2, AlertTriangle, Building, Save, FileText, Send, Star } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 interface JobDetailModalProps {
   job: Partial<Job>;
+  match: JobMatch | null;
   isSaved: boolean;
   onClose: () => void;
   onSave: () => void;
   onApplied: () => void;
 }
 
-export default function JobDetailModal({ job, isSaved, onClose, onSave, onApplied }: JobDetailModalProps) {
+export default function JobDetailModal({ job, match, isSaved, onClose, onSave, onApplied }: JobDetailModalProps) {
   const navigate = useNavigate();
 
   return (
@@ -33,10 +34,10 @@ export default function JobDetailModal({ job, isSaved, onClose, onSave, onApplie
               </div>
             </div>
             <div className="flex items-start gap-4">
-              {job.matchScore !== undefined && (
+              {match?.matchScore !== undefined && (
                  <div className="flex flex-col items-center justify-center bg-white border border-slate-200 rounded-lg p-2 min-w-[80px]">
-                   <span className={`text-2xl font-bold ${job.matchScore >= 80 ? 'text-green-600' : job.matchScore >= 50 ? 'text-amber-500' : 'text-red-500'}`}>
-                     {job.matchScore}%
+                   <span className={`text-2xl font-bold ${match?.matchScore >= 80 ? 'text-green-600' : match?.matchScore >= 50 ? 'text-amber-500' : 'text-red-500'}`}>
+                     {match?.matchScore}%
                    </span>
                    <span className="text-[10px] uppercase font-bold text-slate-400">Match</span>
                  </div>
@@ -50,24 +51,24 @@ export default function JobDetailModal({ job, isSaved, onClose, onSave, onApplie
           <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50">
             
             {/* Match Analysis Section */}
-            {job.matchScore !== undefined && (
+            {match?.matchScore !== undefined && (
               <div className="mb-8">
                 <h3 className="text-lg font-bold text-slate-800 mb-4 border-b border-slate-200 pb-2">Match Analysis</h3>
                 <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
-                  <p className="text-slate-700 leading-relaxed font-medium">{job.matchExplanation}</p>
+                  <p className="text-slate-700 leading-relaxed font-medium">{match?.matchExplanation}</p>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
                     <div>
                       <h4 className="font-semibold text-sm text-green-700 flex items-center gap-2 mb-2"><CheckCircle2 className="w-4 h-4"/> Matched Skills</h4>
                       <div className="flex flex-wrap gap-2">
-                        {job.matchedSkills?.map(s => <span key={s} className="px-2 py-1 bg-green-50 border border-green-100 text-green-700 rounded-md text-xs font-medium">{s}</span>)}
+                        {match?.matchedSkills?.map(s => <span key={s} className="px-2 py-1 bg-green-50 border border-green-100 text-green-700 rounded-md text-xs font-medium">{s}</span>)}
                       </div>
                     </div>
-                    {(job.missingRequiredSkills && job.missingRequiredSkills.length > 0) && (
+                    {(match?.missingRequiredSkills && match?.missingRequiredSkills.length > 0) && (
                       <div>
                         <h4 className="font-semibold text-sm text-red-700 flex items-center gap-2 mb-2"><AlertTriangle className="w-4 h-4"/> Missing Core Requirements</h4>
                         <ul className="list-disc list-inside text-sm text-slate-600 space-y-1">
-                          {job.missingRequiredSkills.map(s => <li key={s}>{s}</li>)}
+                          {match?.missingRequiredSkills.map(s => <li key={s}>{s}</li>)}
                         </ul>
                       </div>
                     )}
@@ -89,13 +90,13 @@ export default function JobDetailModal({ job, isSaved, onClose, onSave, onApplie
 
           <div className="p-6 border-t border-slate-200 bg-white flex justify-between items-center shrink-0">
             <div className="flex items-center gap-2">
-              {job.recommendation && (
+              {match?.recommendation && (
                  <span className={`inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-bold uppercase tracking-wider ${
-                  job.recommendation === 'APPLY' ? 'bg-green-100 text-green-700' : 
-                  job.recommendation === 'APPLY_WITH_CHANGES' ? 'bg-yellow-100 text-yellow-700' : 
+                  match?.recommendation === 'APPLY' ? 'bg-green-100 text-green-700' : 
+                  match?.recommendation === 'APPLY_WITH_CHANGES' ? 'bg-yellow-100 text-yellow-700' : 
                   'bg-slate-100 text-slate-500'
                 }`}>
-                  {job.recommendation.replace(/_/g, ' ')}
+                  {match?.recommendation.replace(/_/g, ' ')}
                 </span>
               )}
             </div>

@@ -43,30 +43,24 @@ export default function AnalyzeJobModal({ onClose, onJobAdded }: { onClose: () =
       const analysis = await res.json();
 
       // 3. Save to Firestore
+      
+      
       const newJobId = String(Math.random());
-      await jobService.saveJob({
+      const jobData = {
         id: newJobId,
-        userId: user.uid,
         company,
         title,
         url,
         description,
-        matchScore: analysis.matchScore,
-        matchExplanation: analysis.matchExplanation,
-        matchedSkills: analysis.matchedSkills || [],
-        missingRequiredSkills: analysis.missingRequiredSkills || [],
-        missingNiceToHaveSkills: analysis.missingNiceToHaveSkills || [],
-        skillsMatch: analysis.skillsMatch || '',
-        experienceMatch: analysis.experienceMatch || '',
-        seniorityMatch: analysis.seniorityMatch || '',
-        industryMatch: analysis.industryMatch || '',
-        locationMatch: analysis.locationMatch || '',
-        educationMatch: analysis.educationMatch || '',
-        concerns: analysis.concerns || [],
-        recommendation: analysis.recommendation,
-        status: 'SAVED',
-        dateAdded: Date.now()
-      });
+        source: 'Manual'
+      };
+      
+      await jobService.saveJob(user.uid, jobData as any);
+      
+      // Save the match
+      const { jobMatchService } = await import('../services/jobMatchService');
+      const newMatch = { ...analysis, jobId: newJobId, userId: user.uid };
+      await jobMatchService.saveMatch(newMatch);
 
       onJobAdded();
       onClose();

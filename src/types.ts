@@ -107,12 +107,15 @@ export interface SavedJob {
 }
 
 export interface JobMatch {
+  analyzedAt?: number;
+  resumeVersion?: string;
   analysisStatus?: 'READY' | 'ANALYSIS_UNAVAILABLE' | 'ANALYSIS_FAILED';
   id: string; // Typically same as jobId or composite
   userId: string;
   jobId: string;
   matchScore?: number | null;
-  confidenceScore?: number; // 0-100 based on evidence coverage
+  confidenceScore?: number;
+  confidenceLevel?: 'HIGH' | 'MEDIUM' | 'LOW'; // 0-100 based on evidence coverage
   matchExplanation: string;
   matchedSkills: string[];
   skillsMatch: string;

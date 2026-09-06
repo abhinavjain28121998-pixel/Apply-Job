@@ -11,7 +11,7 @@ export const calculateApplicationReadiness = (
 
   // 1. Is Resume/Profile state valid?
   // Structural validation: has baseCvText, and has either workHistory or skills populated
-  const hasBasicCv = profile && profile.baseCvText && profile.baseCvText.length > 50;
+  const hasBasicCv = profile && typeof profile.baseCvText === 'string' && profile.baseCvText.trim().length > 0;
   const hasWorkHistory = profile && profile.workHistory && profile.workHistory.length > 0;
   const hasSkills = profile && profile.skills && profile.skills.length > 0;
   

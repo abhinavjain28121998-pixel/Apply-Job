@@ -25,20 +25,17 @@ export default function FindJobs() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
 
-  const [savedJobs, setSavedJobs] = useState<Map<string, Partial<Job>>>(new Map());
+  const [matches, setMatches] = useState<Map<string, any>>(new Map());
   useEffect(() => {
     if (!user) return;
     const fetchUserData = async () => {
       const savedJobsList = await jobService.getSavedJobsForUser(user.uid);
-      const jobs = savedJobsList.map(sj => sj.job);
-      const savedMap = new Map<string, Partial<Job>>();
       const savedIds = new Set<string>();
-      jobs.forEach(j => {
-        savedIds.add(j.id!);
-        savedMap.set(j.id!, j);
-      });
+      savedJobsList.forEach(sj => savedIds.add(sj.jobId));
       setSavedJobIds(savedIds);
-      setSavedJobs(savedMap);
+      
+      // We don't fetch all matches initially to save bandwidth, or we could if we had an endpoint.
+      // For now, let's assume we fetch them when requested, but let's just leave the map empty initially.
     };
     fetchUserData();
   }, [user]);
@@ -81,91 +78,70 @@ export default function FindJobs() {
     }
   };
 
-  const analyzeJobsSequentially = async (jobsToAnalyze: Partial<Job>[]) => {
-    for (const job of jobsToAnalyze) {
-      if (job.matchScore) continue;
-      setAnalyzingIds(prev => new Set(prev).add(job.id!));
-      try {
-        const res = await fetch('/api/analyze-job', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            jobDescription: job.description,
-            baseCv: baseCv
-          })
-        });
+  const analyzeJob = async (job: Partial<Job>) => {
+    if (!user || !job.id) return;
+    setAnalyzingIds(prev => new Set(prev).add(job.id!));
+    try {
+      const profile = await resumeService.getProfile(user.uid);
+      const res = await fetch('/api/analyze-job', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jobDescription: job.description,
+          baseCv: profile?.baseCvText || ''
+        })
+      });
+      
+      if (res.ok) {
+        const analysis = await res.json();
         
-        if (res.ok) {
-          const analysis = await res.json();
-          
-          // If the job is saved, persist the analysis to jobService immediately
-          if (savedJobIds.has(job.id!)) {
-             await jobMatchService.saveMatch({ ...analysis, jobId: job.id!, userId: user.uid, id: '' } as any);
-             // Also update local savedJobs map
-             setSavedJobs(prev => {
-                const next = new Map(prev);
-                const existing = next.get(job.id!) || job;
-                next.set(job.id!, { ...existing, ...analysis });
-                return next;
-             });
-          } else {
-             // If not saved, we just save it now automatically as they analyzed it
-             await saveJob(job);
-             await jobMatchService.saveMatch({ ...analysis, jobId: job.id!, userId: user.uid, id: '' } as any);
-          }
-
-          setResults(prev => prev.map(j => {
-            if (j.id === job.id) return { ...j, ...analysis };
-            return j;
-          }));
-        }
-      } catch (err) {
-        console.error("Failed to analyze job", job.id);
-      } finally {
-        setAnalyzingIds(prev => {
-          const next = new Set(prev);
-          next.delete(job.id!);
+        // Save the match
+        const matchToSave = { ...analysis, jobId: job.id, userId: user.uid };
+        await jobMatchService.saveMatch(matchToSave);
+        
+        setMatches(prev => {
+          const next = new Map(prev);
+          next.set(job.id!, matchToSave);
           return next;
         });
+
+        // Ensure job is saved if analyzed
+        if (!savedJobIds.has(job.id)) {
+          await saveJob(job);
+        }
       }
-    }
-  };
-
-  const clearFilters = () => {
-    setFilters({ query: '', location: '', workMode: '' });
-  };
-
-  const saveJob = async (job: Partial<Job>) => {
-    if (!user || !job.id) return;
-    try {
-      const fullJob: Job = {
-        ...(job as Job),
-        userId: user.uid,
-        status: 'SAVED',
-        dateAdded: Date.now()
-      };
-      await jobService.saveJob(user.uid, fullJob);
-      setSavedJobIds(prev => new Set(prev).add(job.id!));
     } catch (err) {
-      console.error("Failed to save job", err);
+      console.error(err);
+    } finally {
+      setAnalyzingIds(prev => {
+        const next = new Set(prev);
+        next.delete(job.id!);
+        return next;
+      });
     }
   };
 
   const getSortedResults = () => {
-    let sorted = [...results];
+    let combined = results.map(job => ({
+      job,
+      match: matches.get(job.id!) || null,
+      saved: savedJobIds.has(job.id!)
+    }));
+    
     if (sortBy === 'MATCH') {
-      sorted.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
+      combined.sort((a, b) => ((b.match?.matchScore || 0) - (a.match?.matchScore || 0)));
     } else if (sortBy === 'RECENT') {
-      sorted.sort((a, b) => (b.postedDate || 0) - (a.postedDate || 0));
+      combined.sort((a, b) => ((b.job.postedDate || 0) - (a.job.postedDate || 0)));
     } else if (sortBy === 'SALARY') {
       const parseSalary = (s?: string) => {
         if (!s) return 0;
-        const match = s.match(/(\d+)/);
-        return match ? parseInt(match[0], 10) : 0;
+        const match = s.match(/\d+/g);
+        if (match && match.length > 0) return parseInt(match[0], 10);
+        return 0;
       };
-      sorted.sort((a, b) => parseSalary(b.salaryRange) - parseSalary(a.salaryRange));
+      combined.sort((a, b) => parseSalary(b.job.salaryRange) - parseSalary(a.job.salaryRange));
     }
-    return sorted;
+    return combined;
   };
 
   const getTimeAgo = (ms: number) => {
@@ -298,13 +274,13 @@ export default function FindJobs() {
         )}
 
         <div className="space-y-4">
-          {sortedResults.map(job => {
+          {sortedResults.map(({job, match, saved}) => {
             const isAnalyzing = analyzingIds.has(job.id!);
-            const isSaved = savedJobIds.has(job.id!);
+            const isSaved = saved;
 
             return (
               <div key={job.id} className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
-                {job.recommendation === 'APPLY' && (
+                {match?.recommendation === "APPLY" && (
                   <div className="absolute top-0 right-0 bg-green-500 text-white text-[10px] font-bold px-3 py-1 uppercase tracking-wider rounded-bl-lg flex items-center gap-1">
                     <Star className="w-3 h-3 fill-current" /> Top Match
                   </div>
@@ -321,11 +297,11 @@ export default function FindJobs() {
                     </div>
                   </div>
                   
-                  {job.matchScore != null ? (
+                  {match?.matchScore != null ? (
                      <div className="flex flex-col items-end">
                        <div className="flex items-center gap-2">
-                         <div className={`text-2xl font-bold ${job.matchScore >= 80 ? 'text-green-600' : job.matchScore >= 50 ? 'text-amber-500' : 'text-red-500'}`}>
-                           {job.matchScore}%
+                         <div className={`text-2xl font-bold ${match?.matchScore >= 80 ? 'text-green-600' : match?.matchScore >= 50 ? 'text-amber-500' : 'text-red-500'}`}>
+                           {match?.matchScore}%
                          </div>
                          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider text-right leading-tight">Match<br/>Score</div>
                        </div>
@@ -336,7 +312,7 @@ export default function FindJobs() {
                     </div>
                   ) : (
                     <button 
-                      onClick={() => analyzeJobsSequentially([job])}
+                      onClick={() => analyzeJob(job)}
                       className="flex items-center gap-2 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
                     >
                       Analyze Fit
@@ -351,20 +327,20 @@ export default function FindJobs() {
                   {job.postedDate && <div className="flex items-center gap-1.5"><Clock className="w-4 h-4 text-slate-400" /> {getTimeAgo(job.postedDate)}</div>}
                 </div>
 
-                {job.matchScore != null && (
+                {match?.matchScore != null && (
                   <div className="mb-5 bg-slate-50 border border-slate-100 rounded-lg p-4">
-                    <p className="text-sm text-slate-700 mb-3">{job.matchExplanation}</p>
+                    <p className="text-sm text-slate-700 mb-3">{match?.matchExplanation}</p>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {job.missingRequiredSkills && job.missingRequiredSkills.length > 0 && (
+                      {match?.missingRequiredSkills && match?.missingRequiredSkills.length > 0 && (
                          <div className="flex items-start gap-2 text-sm text-red-700">
                            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                           <span>Missing: <span className="font-medium">{job.missingRequiredSkills.join(', ')}</span></span>
+                           <span>Missing: <span className="font-medium">{match?.missingRequiredSkills.join(', ')}</span></span>
                          </div>
                       )}
-                      {job.matchedSkills && job.matchedSkills.length > 0 && (
+                      {match?.matchedSkills && match?.matchedSkills.length > 0 && (
                          <div className="flex items-start gap-2 text-sm text-green-700">
                            <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
-                           <span>Matches: <span className="font-medium">{job.matchedSkills.slice(0, 3).join(', ')}{job.matchedSkills.length > 3 ? ` +${job.matchedSkills.length - 3}` : ''}</span></span>
+                           <span>Matches: <span className="font-medium">{match?.matchedSkills.slice(0, 3).join(', ')}{match?.matchedSkills.length > 3 ? ` +${match?.matchedSkills.length - 3}` : ''}</span></span>
                          </div>
                       )}
                     </div>
@@ -373,13 +349,13 @@ export default function FindJobs() {
 
                 <div className="flex items-center justify-between border-t border-slate-100 pt-4 mt-2">
                   <div className="flex items-center gap-2">
-                    {job.recommendation && (
+                    {match?.recommendation && (
                        <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold uppercase tracking-wider ${
-                        job.recommendation === 'APPLY' ? 'bg-green-100 text-green-700' : 
-                        job.recommendation === 'APPLY_WITH_CHANGES' ? 'bg-yellow-100 text-yellow-700' : 
+                        match?.recommendation === "APPLY" ? 'bg-green-100 text-green-700' : 
+                        match?.recommendation === 'APPLY_WITH_CHANGES' ? 'bg-yellow-100 text-yellow-700' : 
                         'bg-slate-100 text-slate-500'
                       }`}>
-                        {job.recommendation.replace(/_/g, ' ')}
+                        {match?.recommendation.replace(/_/g, ' ')}
                       </span>
                     )}
                   </div>
@@ -422,6 +398,7 @@ export default function FindJobs() {
       {selectedJob && (
         <JobDetailModal
           job={selectedJob}
+          match={matches.get(selectedJob.id!) || null}
           isSaved={savedJobIds.has(selectedJob.id!)}
           onClose={() => setSelectedJob(null)}
           onSave={() => saveJob(selectedJob)}
