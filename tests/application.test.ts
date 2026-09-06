@@ -13,7 +13,16 @@ describe('calculateApplicationReadiness', () => {
   it('should return 100 readiness for fully prepared job', () => {
     const job: Partial<Job> = { title: 'T', company: 'C' };
     const match = { analysisStatus: 'READY', matchScore: 80 } as JobMatch;
-    const app = { tailoredCv: 'Some cv', coverLetter: 'Some letter', applicationAnswers: { why: 'Because' } } as Application;
+    const app = { 
+      id: 'app-1',
+      userId: 'user-1',
+      jobId: 'job-1',
+      status: 'PREPARING',
+      datePrepared: Date.now(),
+      tailoredCv: 'Some cv', 
+      coverLetter: 'Some letter', 
+      applicationAnswers: { why: 'Because' } 
+    } as Application;
     const profile = { baseCvText: 'This is a long base CV text to ensure it passes the length requirement.', skills: ['React'] } as UserProfile;
     
     const result = calculateApplicationReadiness(job, match, app, profile);

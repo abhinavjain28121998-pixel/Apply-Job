@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
-
-
 import { useAuth } from '../AuthContext';
-import { Job, SearchFilters, ProviderStatus } from '../types';
+import { Job, JobMatch, SearchFilters, ProviderStatus } from '../types';
 import { jobService } from '../services/jobService';
 import { jobMatchService } from '../services/jobMatchService';
 import { resumeService } from '../services/resumeService';
@@ -11,20 +9,22 @@ import { Link } from 'react-router-dom';
 import JobDetailModal from './JobDetailModal';
 
 export default function FindJobs() {
-  const { user } = useAuth();
+  const { user, getToken } = useAuth();
   const [filters, setFilters] = useState<SearchFilters>({ query: '', location: '', workMode: '' });
   const [searching, setSearching] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [results, setResults] = useState<Job[]>([]);
-    const [savedJobIds, setSavedJobIds] = useState<Set<string>>(new Set());
+  const [savedJobIds, setSavedJobIds] = useState<Set<string>>(new Set());
   const [analyzingIds, setAnalyzingIds] = useState<Set<string>>(new Set());
-    const [sortBy, setSortBy] = useState<'MATCH' | 'RECENT' | 'SALARY'>('MATCH');
+  const [sortBy, setSortBy] = useState<'MATCH' | 'RECENT' | 'SALARY'>('MATCH');
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   
   const [providerStatus, setProviderStatus] = useState<ProviderStatus | null>(null);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
 
-  const [matches, setMatches] = useState<Map<string, import("../types").JobMatch>>(new Map());
+  const [matches, setMatches] = useState<Map<string, JobMatch>>(new Map());
   useEffect(() => {
     if (!user) return;
     const fetchUserData = async () => {
@@ -33,9 +33,9 @@ export default function FindJobs() {
       savedJobsList.forEach(sj => savedIds.add(sj.jobId));
       setSavedJobIds(savedIds);
       
-      const matches = await jobMatchService.getMatchesForUser(user.uid);
-      const matchMap = new Map();
-      matches.forEach(m => matchMap.set(m.jobId, m));
+      const persistedMatches = await jobMatchService.getMatchesForUser(user.uid);
+      const matchMap = new Map<string, JobMatch>();
+      persistedMatches.forEach(m => matchMap.set(m.jobId, m));
       setMatches(matchMap);
     };
     fetchUserData();
@@ -48,11 +48,38 @@ export default function FindJobs() {
       .catch(console.error);
   }, []);
 
+  const saveJob = async (job: Job) => {
+    if (!user) return;
+    if (savedJobIds.has(job.id!)) return; // Prevent duplicate saves
+
+    try {
+      await jobService.saveJob(user.uid, job);
+      setSavedJobIds(prev => {
+        const next = new Set(prev);
+        next.add(job.id!);
+        return next;
+      });
+    } catch (error) {
+      console.error('Failed to save job:', error);
+    }
+  };
+
+  const clearFilters = () => {
+    setFilters({ query: '', location: '', workMode: '' });
+  };
+
   const handleSearch = async (loadMore = false) => {
     if (!user) return;
-    setSearching(true);
+    if (loadMore) {
+      setLoadingMore(true);
+    } else {
+      setSearching(true);
+      setPage(1);
+      setHasMore(false);
+    }
+    setSearchError(null);
     const targetPage = loadMore ? page + 1 : 1;
-    
+        
     try {
       const res = await fetch('/api/jobs/search', {
         method: 'POST',
@@ -60,33 +87,38 @@ export default function FindJobs() {
         body: JSON.stringify({ ...filters, page: targetPage, limit: 10 })
       });
       
-      if (res.ok) {
-        const data = await res.json();
-        setProviderStatus(data.status);
-        setHasMore(data.hasMore);
-        setPage(targetPage);
-        
-        const newJobs = data.jobs;
-        setResults(loadMore ? [...results, ...newJobs] : newJobs);
-        
-        // Auto-analysis is disabled to avoid hitting rate limits on search
-        // Users can analyze individual jobs from the Workspace
+      if (!res.ok) {
+        throw new Error(`Search failed with status ${res.status}`);
       }
-    } catch (err) {
-      console.error(err);
+
+      const data = await res.json();
+      setProviderStatus(data.status);
+      setHasMore(Boolean(data.hasMore));
+      setPage(targetPage);
+      
+      const newJobs: Job[] = data.jobs || [];
+      setResults(prev => loadMore ? [...prev, ...newJobs] : newJobs);
+    } catch (err: any) {
+      console.error('Job search error:', err);
+      setSearchError(err?.message || 'Failed to search jobs. Please try again.');
     } finally {
-      setSearching(false);
+      if (loadMore) {
+        setLoadingMore(false);
+      } else {
+        setSearching(false);
+      }
     }
   };
 
-  const analyzeJob = async (job: Partial<Job>) => {
+  const analyzeJob = async (job: Job) => {
     if (!user || !job.id) return;
     setAnalyzingIds(prev => new Set(prev).add(job.id!));
     try {
       const profile = await resumeService.getProfile(user.uid);
+      const token = await getToken();
       const res = await fetch('/api/analyze-job', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({
           jobDescription: job.description,
           baseCv: profile?.baseCvText || ''
@@ -105,8 +137,6 @@ export default function FindJobs() {
           next.set(job.id!, matchToSave);
           return next;
         });
-
-        
       }
     } catch (err) {
       console.error(err);
@@ -194,7 +224,7 @@ export default function FindJobs() {
               <label className="block text-sm font-medium text-slate-700 mb-1">Work Mode</label>
               <select 
                 value={filters.workMode}
-                onChange={e => setFilters({...filters, workMode: e.target.value})}
+                onChange={e => setFilters({...filters, workMode: e.target.value as SearchFilters['workMode']})}
                 className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-sm bg-white"
               >
                 <option value="">Any Work Mode</option>
@@ -206,11 +236,11 @@ export default function FindJobs() {
 
             <button 
               onClick={() => handleSearch(false)}
-              disabled={searching}
-              className="w-full mt-4 bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2"
+              disabled={searching || loadingMore}
+              className="w-full mt-4 bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-70"
             >
-              {searching && !hasMore ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-              {searching && !hasMore ? 'Searching...' : 'Search Jobs'}
+              {searching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+              {searching ? 'Searching...' : 'Search Jobs'}
             </button>
           </div>
         </div>
@@ -218,6 +248,21 @@ export default function FindJobs() {
 
       {/* Results Area */}
       <div className="flex-1">
+        {searchError && (
+          <div className="mb-6 bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <AlertTriangle className="w-5 h-5 shrink-0 text-red-600" />
+              <p className="text-sm font-medium">{searchError}</p>
+            </div>
+            <button 
+              onClick={() => setSearchError(null)}
+              className="text-xs text-red-600 hover:text-red-800 font-semibold uppercase tracking-wider underline"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
         {providerStatus?.status === 'DEMO' && (
           <div className="mb-6 bg-blue-50 border border-blue-200 text-blue-800 p-4 rounded-xl flex items-start gap-3">
             <Info className="w-5 h-5 shrink-0 mt-0.5 text-blue-600" />
@@ -232,7 +277,25 @@ export default function FindJobs() {
             <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5 text-amber-600" />
             <div>
               <h4 className="font-bold">Provider Not Configured</h4>
-              <p className="text-sm opacity-90">Naukri integration is not configured. Please supply API credentials to enable live search.</p>
+              <p className="text-sm opacity-90">Naukri integration is not configured. Please supply API credentials in your server environment to enable live search.</p>
+            </div>
+          </div>
+        )}
+        {providerStatus?.status === 'ERROR' && (
+          <div className="mb-6 bg-red-50 border border-red-200 text-red-800 p-4 rounded-xl flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5 text-red-600" />
+            <div>
+              <h4 className="font-bold">Provider Connection Error</h4>
+              <p className="text-sm opacity-90">{providerStatus.lastError || 'Failed to establish connection with job provider.'}</p>
+            </div>
+          </div>
+        )}
+        {providerStatus?.status === 'CONNECTED' && (
+          <div className="mb-6 bg-green-50 border border-green-200 text-green-800 p-4 rounded-xl flex items-start gap-3">
+            <CheckCircle2 className="w-5 h-5 shrink-0 mt-0.5 text-green-600" />
+            <div>
+              <h4 className="font-bold">Provider Connected</h4>
+              <p className="text-sm opacity-90">Connected to {providerStatus.provider}. Live job search is active.</p>
             </div>
           </div>
         )}
@@ -386,11 +449,11 @@ export default function FindJobs() {
             <div className="flex justify-center pt-4">
               <button
                 onClick={() => handleSearch(true)}
-                disabled={searching}
-                className="px-6 py-2 border border-slate-300 text-slate-700 rounded-lg font-medium hover:bg-slate-50 transition-colors flex items-center gap-2"
+                disabled={searching || loadingMore}
+                className="px-6 py-2 border border-slate-300 text-slate-700 rounded-lg font-medium hover:bg-slate-50 transition-colors flex items-center gap-2 disabled:opacity-70"
               >
-                {searching ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                {searching ? 'Loading...' : 'Load More Jobs'}
+                {loadingMore ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                {loadingMore ? 'Loading More Jobs...' : 'Load More Jobs'}
               </button>
             </div>
           )}

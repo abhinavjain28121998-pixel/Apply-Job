@@ -102,27 +102,18 @@ export class NaukriJobProvider implements JobProvider {
       };
     }
     
-    // Real implementation would ping the health endpoint
+    // Real implementation would ping the health endpoint, but since it is not implemented:
     return {
       provider: 'Naukri',
-      status: 'CONNECTED',
-      lastSync: Date.now()
+      status: 'ERROR',
+      lastError: 'Naukri integration pending backend implementation'
     };
   }
 }
 
 export function getProvider(): JobProvider {
   if (process.env.JOB_PROVIDER === 'naukri') {
-    const baseUrl = process.env.NAUKRI_API_BASE_URL;
-    const apiKey = process.env.NAUKRI_API_KEY;
-    const clientId = process.env.NAUKRI_CLIENT_ID;
-    
-    if (baseUrl && apiKey && clientId) {
-      return new NaukriJobProvider();
-    } else {
-      console.warn('Naukri provider requested but credentials are missing. Falling back to MockJobProvider.');
-      return new MockJobProvider();
-    }
+    return new NaukriJobProvider();
   }
   return new MockJobProvider();
 }

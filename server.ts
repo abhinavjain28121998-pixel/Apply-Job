@@ -9,10 +9,40 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json());
+  app.use(express.json({ limit: '5mb' }));
 
   // Check Gemini API key
   const ai = process.env.GEMINI_API_KEY ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }) : null;
+
+  
+  // Basic authentication middleware
+  const requireAuth = (req, res, next) => {
+    // In demo mode, we might want to bypass or allow any token
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: "Unauthorized. Missing or invalid Authorization header." });
+    }
+    next();
+  };
+
+  // Basic rate limiting middleware
+  const rateLimitMap = new Map();
+  const rateLimit = (req, res, next) => {
+    const ip = req.ip || req.connection.remoteAddress;
+    const now = Date.now();
+    const userLimits = rateLimitMap.get(ip) || [];
+    
+    // Clean up old requests (older than 1 minute)
+    const recentRequests = userLimits.filter(time => now - time < 60000);
+    
+    if (recentRequests.length >= 10) { // 10 requests per minute
+      return res.status(429).json({ error: "Too many requests. Please try again later." });
+    }
+    
+    recentRequests.push(now);
+    rateLimitMap.set(ip, recentRequests);
+    next();
+  };
 
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
@@ -74,21 +104,14 @@ async function startServer() {
     }
   });
 
-  app.get("/api/providers/status", async (req, res) => {
-    try {
-      const provider = getProvider();
-      const status = await provider.healthCheck();
-      res.json(status);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to check provider status" });
-    }
-  });
-
+  
   // Extract structured profile
-  app.post("/api/extract-profile", async (req, res) => {
+  app.post("/api/extract-profile", requireAuth, rateLimit, async (req, res) => {
     try {
       const { baseCv } = req.body;
-      if (!baseCv) return res.status(400).json({ error: "Missing baseCv" });
+      if (!baseCv || typeof baseCv !== 'string' || !baseCv.trim()) {
+        return res.status(400).json({ error: "Missing or invalid baseCv in request body" });
+      }
 
       const prompt = `You are an expert technical recruiter. Parse the provided CV text into a structured JSON profile.
 Extract the following fields accurately. If a field is not present, omit it or leave it empty.
@@ -111,14 +134,23 @@ Schema:
 CV Text:
 ${baseCv}`;
 
-      let parsed = {};
+      let parsed: any = {};
       if (ai) {
         const response = await ai.models.generateContent({
           model: "gemini-2.5-flash",
           contents: prompt,
           config: { responseMimeType: "application/json", temperature: 0.1 }
         });
-        try { parsed = JSON.parse(response.text || "{}"); } catch (e) {}
+        try {
+          parsed = JSON.parse(response.text || "{}");
+        } catch (e) {
+          console.error("Failed to parse Gemini response for profile extraction", e);
+          return res.status(500).json({ error: "Failed to parse structured profile from AI response" });
+        }
+
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          return res.status(500).json({ error: "Invalid profile structure returned by AI" });
+        }
       } else {
         parsed = {
           summary: "Demo Profile Extracted",
@@ -133,17 +165,22 @@ ${baseCv}`;
   });
 
   // Analyze job
-  app.post("/api/analyze-job", async (req, res) => {
+  app.post("/api/analyze-job", requireAuth, rateLimit, async (req, res) => {
     try {
       const { jobDescription, baseCv } = req.body;
-      if (!jobDescription || !baseCv) {
-        return res.status(400).json({ error: "Missing jobDescription or baseCv" });
+      if (!jobDescription || typeof jobDescription !== 'string' || !jobDescription.trim() ||
+          !baseCv || typeof baseCv !== 'string' || !baseCv.trim()) {
+        return res.status(400).json({ error: "Missing or invalid jobDescription or baseCv" });
       }
 
       const { MatchingService } = await import('./src/services/matchingService.js');
       const matchingService = new MatchingService();
       const analysis = await matchingService.evaluateMatch(jobDescription, baseCv);
       
+      if (!analysis || typeof analysis !== 'object') {
+        return res.status(500).json({ error: "Failed to generate valid analysis" });
+      }
+
       res.json(analysis);
     } catch (error) {
       console.error(error);
@@ -152,12 +189,13 @@ ${baseCv}`;
   });
 
   // Tailor application
-  app.post("/api/tailor-application", async (req, res) => {
+  app.post("/api/tailor-application", requireAuth, rateLimit, async (req, res) => {
     try {
       const { jobDescription, baseCv, company, title } = req.body;
 
-      if (!jobDescription || !baseCv) {
-        return res.status(400).json({ error: "Missing inputs" });
+      if (!jobDescription || typeof jobDescription !== 'string' || !jobDescription.trim() ||
+          !baseCv || typeof baseCv !== 'string' || !baseCv.trim()) {
+        return res.status(400).json({ error: "Missing or invalid inputs (jobDescription and baseCv are required)" });
       }
 
       const prompt = `You are an expert career coach helping a candidate apply for a job.
@@ -193,7 +231,7 @@ Return a JSON object with this schema:
   "coverLetter": "string (Markdown format) representing a personalized cover letter. Keep it concise, compelling, and truthful."
 }`;
 
-      let parsed = {};
+      let parsed: any = {};
       if (ai) {
         const response = await ai.models.generateContent({
           model: "gemini-2.5-flash",
@@ -207,8 +245,12 @@ Return a JSON object with this schema:
           const text = response.text || "{}";
           parsed = JSON.parse(text);
         } catch (e) {
-          console.error("Failed to parse Gemini response", e);
-          return res.status(500).json({ error: "Failed to parse tailored output" });
+          console.error("Failed to parse Gemini response for tailor-application", e);
+          return res.status(500).json({ error: "Failed to parse tailored output from AI response" });
+        }
+
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          return res.status(500).json({ error: "Invalid tailored application structure returned by AI" });
         }
       } else {
          parsed = {
@@ -230,11 +272,12 @@ Return a JSON object with this schema:
   });
 
   // Generate Cover Letter
-  app.post("/api/generate-cover-letter", async (req, res) => {
+  app.post("/api/generate-cover-letter", requireAuth, rateLimit, async (req, res) => {
     try {
       const { jobDescription, baseCv, company, title } = req.body;
-      if (!jobDescription || !baseCv) {
-        return res.status(400).json({ error: "Missing inputs" });
+      if (!jobDescription || typeof jobDescription !== 'string' || !jobDescription.trim() ||
+          !baseCv || typeof baseCv !== 'string' || !baseCv.trim()) {
+        return res.status(400).json({ error: "Missing or invalid inputs (jobDescription and baseCv are required)" });
       }
       const prompt = `You are an expert career coach writing a concise, job-specific cover letter.
 CRITICAL INSTRUCTION: You MUST NEVER invent qualifications, experience, skills, companies, achievements, or certifications. Rely EXCLUSIVELY on the provided CV.
@@ -265,11 +308,12 @@ Write a professional, compelling, and truthful cover letter in Markdown format. 
   });
 
   // Generate Answers
-  app.post("/api/generate-answers", async (req, res) => {
+  app.post("/api/generate-answers", requireAuth, rateLimit, async (req, res) => {
     try {
       const { jobDescription, baseCv, company, title } = req.body;
-      if (!jobDescription || !baseCv) {
-        return res.status(400).json({ error: "Missing inputs" });
+      if (!jobDescription || typeof jobDescription !== 'string' || !jobDescription.trim() ||
+          !baseCv || typeof baseCv !== 'string' || !baseCv.trim()) {
+        return res.status(400).json({ error: "Missing or invalid inputs (jobDescription and baseCv are required)" });
       }
       const prompt = `You are assisting a candidate with their job application. Generate answers for common application questions based strictly on the provided CV and job description.
 CRITICAL: NEVER invent experience, projects, employers, skills, achievements, salary information, or qualifications. If the CV lacks information (like current/expected salary or notice period), state a placeholder or say 'Not specified in profile, please update manually'.
@@ -293,14 +337,23 @@ Return a JSON object where keys are standard question identifiers and values are
   "expectedCompensation": "string (Infer or placeholder)",
   "locationPreference": "string (Infer or placeholder)"
 }`;
-      let parsed = {};
+      let parsed: any = {};
       if (ai) {
         const response = await ai.models.generateContent({
           model: "gemini-2.5-flash",
           contents: prompt,
           config: { responseMimeType: "application/json", temperature: 0.2 }
         });
-        try { parsed = JSON.parse(response.text || "{}"); } catch (e) {}
+        try {
+          parsed = JSON.parse(response.text || "{}");
+        } catch (e) {
+          console.error("Failed to parse Gemini response for answers", e);
+          return res.status(500).json({ error: "Failed to parse structured answers from AI response" });
+        }
+
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          return res.status(500).json({ error: "Invalid answers structure returned by AI" });
+        }
       } else {
         parsed = {
           tellUsAboutYourself: "[Demo Mode] Mock answer",

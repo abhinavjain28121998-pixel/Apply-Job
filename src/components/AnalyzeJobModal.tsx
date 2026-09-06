@@ -1,13 +1,12 @@
 import React, { useState } from 'react';
-
-
 import { useAuth } from '../AuthContext';
+import { Job } from '../types';
 import { X, Loader2 } from 'lucide-react';
 import { jobService } from '../services/jobService';
 import { resumeService } from '../services/resumeService';
 
 export default function AnalyzeJobModal({ onClose, onJobAdded }: { onClose: () => void, onJobAdded: () => void }) {
-  const { user } = useAuth();
+  const { user, getToken } = useAuth();
   const [company, setCompany] = useState('');
   const [title, setTitle] = useState('');
   const [url, setUrl] = useState('');
@@ -30,9 +29,10 @@ export default function AnalyzeJobModal({ onClose, onJobAdded }: { onClose: () =
       const baseCv = profile.baseCvText;
 
       // 2. Call backend for analysis
+      const token = await getToken();
       const res = await fetch('/api/analyze-job', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ jobDescription: description, baseCv })
       });
 

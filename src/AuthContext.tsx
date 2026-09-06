@@ -20,6 +20,7 @@ interface AuthContextType {
   signIn: () => Promise<void>;
   signInDemo: () => void;
   logOut: () => Promise<void>;
+  getToken: () => Promise<string>;
 }
 
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
@@ -88,6 +89,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   };
 
+  const getToken = async () => {
+    if (user?.isDemo) return 'demo-token';
+    if (isFirebaseConfigured() && auth && auth.currentUser) {
+      try { return await auth.currentUser.getIdToken(); } catch (e) { return ''; }
+    }
+    return '';
+  };
+
   const logOut = async () => {
     if (user?.isDemo) {
       localStorage.removeItem('demo_user_session');
@@ -102,7 +111,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signInDemo, logOut }}>
+    <AuthContext.Provider value={{ user, loading, signIn, signInDemo, logOut, getToken }}>
       {children}
     </AuthContext.Provider>
   );

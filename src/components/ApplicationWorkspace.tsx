@@ -1,4 +1,4 @@
-// Used state variables for readiness and reasonsimport React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 import { Job } from '../types';
@@ -14,7 +14,7 @@ import ReactMarkdown from 'react-markdown';
 export default function ApplicationWorkspace() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, getToken } = useAuth();
   
   const [savedJob, setSavedJob] = useState<SavedJob | null>(null);
   const [match, setMatch] = useState<JobMatch | null>(null);
@@ -122,9 +122,10 @@ export default function ApplicationWorkspace() {
     setGenerating('coverLetter');
     try {
       const profile = await resumeService.getProfile(user.uid);
+      const token = await getToken();
       const res = await fetch('/api/generate-cover-letter', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({
           jobDescription: savedJob?.job?.description,
           baseCv: profile.baseCvText,
@@ -149,9 +150,10 @@ export default function ApplicationWorkspace() {
     setGenerating('answers');
     try {
       const profile = await resumeService.getProfile(user.uid);
+      const token = await getToken();
       const res = await fetch('/api/generate-answers', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({
           jobDescription: savedJob?.job?.description,
           baseCv: profile.baseCvText,
@@ -176,9 +178,10 @@ export default function ApplicationWorkspace() {
     setGenerating('tailor');
     try {
       const profile = await resumeService.getProfile(user.uid);
+      const token = await getToken();
       const res = await fetch('/api/tailor-application', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({
           jobDescription: savedJob?.job?.description,
           baseCv: profile.baseCvText,

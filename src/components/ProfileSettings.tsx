@@ -7,7 +7,7 @@ import { UserProfile, ProviderStatus } from '../types';
 import { resumeService } from '../services/resumeService';
 
 export default function ProfileSettings() {
-  const { user } = useAuth();
+  const { user, getToken } = useAuth();
   const [profile, setProfile] = useState<Partial<UserProfile>>({ baseCvText: '' });
   const [saving, setSaving] = useState(false);
   const [extracting, setExtracting] = useState(false);
@@ -29,7 +29,7 @@ export default function ProfileSettings() {
 
   const checkProviderStatus = async () => {
     try {
-      const res = await fetch('/api/providers/status');
+      const res = await fetch('/api/provider/status');
       if (res.ok) {
         setProviderStatus(await res.json());
       }
@@ -63,9 +63,10 @@ export default function ProfileSettings() {
     if (!profile.baseCvText) return;
     setExtracting(true);
     try {
+      const token = await getToken();
       const res = await fetch('/api/extract-profile', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ baseCv: profile.baseCvText })
       });
       const data = await res.json();
@@ -280,6 +281,12 @@ export default function ProfileSettings() {
                   {providerStatus.status === 'NOT_CONFIGURED' && (
                     <div className="text-sm text-amber-700 bg-amber-50 p-4 rounded-lg border border-amber-200">
                       <strong>Missing API Credentials.</strong> Your environment is set to use the Naukri provider, but the required secrets (<code>NAUKRI_API_KEY</code>, <code>NAUKRI_CLIENT_ID</code>) are missing.
+                    </div>
+                  )}
+
+                  {providerStatus.status === 'ERROR' && (
+                    <div className="text-sm text-red-700 bg-red-50 p-4 rounded-lg border border-red-200">
+                      <strong>Provider Error:</strong> {providerStatus.lastError || 'Failed to establish live connection to provider.'}
                     </div>
                   )}
 
