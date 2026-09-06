@@ -3,6 +3,7 @@ import { createOAuthState, validateAndConsumeOAuthState } from '../oauthState.js
 import { linkedinConnectionService } from '../services/linkedinConnectionService.js';
 import { buildLinkedInJobsUrl, isValidLinkedInUrl, linkedinJobDiscoveryService } from '../../src/services/linkedinService.js';
 import { LinkedInConnection, LinkedInStatusResponse } from '../../src/types.js';
+import { requireAuth } from '../auth.js';
 
 export const linkedinRouter = Router();
 
@@ -30,27 +31,31 @@ function getRedirectUri(req: Request): string {
  * Validates only the required configuration:
  * LINKEDIN_ENABLED, LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET, LINKEDIN_REDIRECT_URI, LINKEDIN_SCOPES.
  */
-linkedinRouter.get('/status', async (req: Request, res: Response) => {
+linkedinRouter.get('/status', requireAuth, async (req: Request, res: Response) => {
   try {
     const isEnabled = process.env.LINKEDIN_ENABLED === 'true';
     const clientId = process.env.LINKEDIN_CLIENT_ID?.trim();
     const clientSecret = process.env.LINKEDIN_CLIENT_SECRET?.trim();
     const redirectUri = getRedirectUri(req);
     const scopes = (process.env.LINKEDIN_SCOPES || DEFAULT_SCOPES).trim();
-    const userId = (req.query.userId as string) || (req as any).user?.uid || '';
+    
+    const userId = req.user?.uid;
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized: User session is missing' });
+    }
 
     let connection: LinkedInConnection | null = null;
-    if (userId) {
-      connection = await linkedinConnectionService.getConnection(userId);
-    }
+    connection = await linkedinConnectionService.getConnection(userId);
 
     const isConnected = connection ? connection.status === 'CONNECTED' : false;
 
     let isConfigured = false;
     let configError: string | null = null;
+    let oauthStatus: 'DISABLED' | 'NOT_CONFIGURED' | 'READY' | 'CONNECTED' | 'ERROR';
 
     if (!isEnabled) {
       isConfigured = false;
+      oauthStatus = 'DISABLED';
     } else {
       const missing: string[] = [];
       if (!clientId) missing.push('LINKEDIN_CLIENT_ID');
@@ -58,13 +63,22 @@ linkedinRouter.get('/status', async (req: Request, res: Response) => {
 
       if (missing.length > 0) {
         isConfigured = false;
+        oauthStatus = 'NOT_CONFIGURED';
         configError = `LinkedIn OAuth is enabled (LINKEDIN_ENABLED=true), but missing required credentials: ${missing.join(', ')}.`;
       } else {
         isConfigured = true;
+        oauthStatus = isConnected ? 'CONNECTED' : 'READY';
       }
     }
 
-    const response: LinkedInStatusResponse = {
+    // Fallback/safety check
+    if (oauthStatus !== 'DISABLED' && oauthStatus !== 'NOT_CONFIGURED' && oauthStatus !== 'CONNECTED' && oauthStatus !== 'READY') {
+      oauthStatus = 'ERROR';
+    }
+
+    const jobDiscoveryStatus = 'EXTERNAL_SEARCH_AVAILABLE';
+
+    const response: LinkedInStatusResponse & { oauthStatus: string; jobDiscoveryStatus: string } = {
       enabled: isEnabled,
       configured: isConfigured,
       connected: isConnected,
@@ -84,7 +98,9 @@ linkedinRouter.get('/status', async (req: Request, res: Response) => {
       displayName: connection?.displayName,
       email: connection?.email,
       pictureUrl: connection?.pictureUrl,
-      account: connection || undefined
+      account: connection || undefined,
+      oauthStatus,
+      jobDiscoveryStatus
     };
 
     res.json(response);
@@ -98,7 +114,7 @@ linkedinRouter.get('/status', async (req: Request, res: Response) => {
  * GET /api/linkedin/auth/start
  * Generates OAuth state with CSRF protection and returns official LinkedIn authorization URL.
  */
-linkedinRouter.get('/auth/start', async (req: Request, res: Response) => {
+linkedinRouter.get('/auth/start', requireAuth, async (req: Request, res: Response) => {
   try {
     const isEnabled = process.env.LINKEDIN_ENABLED === 'true';
     if (!isEnabled) {
@@ -123,10 +139,13 @@ linkedinRouter.get('/auth/start', async (req: Request, res: Response) => {
       });
     }
 
-    const userId = (req.query.userId as string) || (req as any).user?.uid || '';
+    const userId = req.user?.uid;
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized: User session is missing' });
+    }
     const redirectPath = (req.query.redirectPath as string) || '/find-jobs';
     const redirectUri = getRedirectUri(req);
-    const state = createOAuthState(userId, redirectPath);
+    const state = await createOAuthState(userId, redirectPath);
     const scopes = process.env.LINKEDIN_SCOPES || DEFAULT_SCOPES;
 
     const authUrlObj = new URL('https://www.linkedin.com/oauth/v2/authorization');
@@ -153,11 +172,29 @@ linkedinRouter.get('/auth/start', async (req: Request, res: Response) => {
  * GET /api/linkedin/auth/callback & /api/linkedin/auth/callback/
  * Server-side authorization code exchange with CSRF protection and popup postMessage handler.
  */
+/**
+ * Helper to determine the trusted origin for postMessage popup security.
+ */
+function getAppOrigin(req: Request): string {
+  if (process.env.APP_URL && process.env.APP_URL.trim()) {
+    return process.env.APP_URL.trim().replace(/\/+$/, '');
+  }
+  const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol || 'https';
+  const host = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'localhost:3000';
+  return `${proto}://${host}`;
+}
+
+/**
+ * GET /api/linkedin/auth/callback & /api/linkedin/auth/callback/
+ * Server-side authorization code exchange with CSRF protection and popup postMessage handler.
+ */
 const callbackHandler = async (req: Request, res: Response) => {
   const code = req.query.code as string | undefined;
   const state = req.query.state as string | undefined;
   const error = req.query.error as string | undefined;
   const errorDescription = req.query.error_description as string | undefined;
+
+  const targetOrigin = getAppOrigin(req);
 
   const renderPopupScript = (payload: { type: string; error?: string; connection?: any }) => {
     const jsonString = JSON.stringify(payload).replace(/</g, '\\u003c');
@@ -184,7 +221,7 @@ const callbackHandler = async (req: Request, res: Response) => {
         document.getElementById('msg').textContent = targetMsg;
         
         if (window.opener) {
-          window.opener.postMessage(payload, '*');
+          window.opener.postMessage(payload, ${JSON.stringify(targetOrigin)});
           setTimeout(function() { window.close(); }, 500);
         } else {
           setTimeout(function() { window.location.href = '/find-jobs'; }, 1500);
@@ -207,7 +244,7 @@ const callbackHandler = async (req: Request, res: Response) => {
     }));
   }
 
-  const validation = validateAndConsumeOAuthState(state);
+  const validation = await validateAndConsumeOAuthState(state);
   if (!validation.valid) {
     return res.status(400).send(renderPopupScript({ 
       type: 'LINKEDIN_AUTH_ERROR', 
@@ -269,7 +306,14 @@ const callbackHandler = async (req: Request, res: Response) => {
       console.warn('Could not fetch LinkedIn profile details:', profileErr);
     }
 
-    const userId = validation.userId || `user_${Date.now()}`;
+    const userId = validation.userId;
+    if (!userId) {
+      return res.status(400).send(renderPopupScript({
+        type: 'LINKEDIN_AUTH_ERROR',
+        error: 'Security validation failed: State token is not bound to a valid user session.'
+      }));
+    }
+
     const connection: LinkedInConnection = {
       userId,
       provider: 'linkedin',
@@ -304,11 +348,11 @@ linkedinRouter.get('/auth/callback/', callbackHandler);
  * POST /api/linkedin/auth/revoke
  * Revokes LinkedIn OAuth session.
  */
-linkedinRouter.post('/auth/revoke', async (req: Request, res: Response) => {
+linkedinRouter.post('/auth/revoke', requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = req.body?.userId || (req as any).user?.uid;
+    const userId = req.user?.uid;
     if (!userId) {
-      return res.status(400).json({ error: 'userId is required' });
+      return res.status(401).json({ error: 'Unauthorized: User session is missing' });
     }
 
     await linkedinConnectionService.revokeConnection(userId);
@@ -323,11 +367,11 @@ linkedinRouter.post('/auth/revoke', async (req: Request, res: Response) => {
  * POST /api/linkedin/disconnect
  * Alias for disconnect.
  */
-linkedinRouter.post('/disconnect', async (req: Request, res: Response) => {
+linkedinRouter.post('/disconnect', requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = req.body?.userId || (req as any).user?.uid;
+    const userId = req.user?.uid;
     if (!userId) {
-      return res.status(400).json({ error: 'userId is required' });
+      return res.status(401).json({ error: 'Unauthorized: User session is missing' });
     }
 
     await linkedinConnectionService.revokeConnection(userId);

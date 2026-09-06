@@ -323,6 +323,8 @@ export interface LinkedInStatusResponse {
   pictureUrl?: string;
   account?: Partial<LinkedInConnection>;
   authUrl?: string;
+  oauthStatus?: 'DISABLED' | 'NOT_CONFIGURED' | 'READY' | 'CONNECTED' | 'ERROR';
+  jobDiscoveryStatus?: 'EXTERNAL_SEARCH_AVAILABLE';
 }
 
 export interface ResumeEvidence {

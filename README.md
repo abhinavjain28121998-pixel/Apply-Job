@@ -36,7 +36,6 @@ The LinkedIn integration requires **ONLY** the minimum configuration necessary f
 | Variable | Required | Description |
 | :--- | :--- | :--- |
 | `GEMINI_API_KEY` | Optional | Google Gemini API key for server-side AI resume tailoring and job matching. |
-| `JOB_PROVIDER` | No | Default `linkedin`. |
 | `ALLOW_DEMO_AUTH` | No | Local/demo testing flag (`false` by default in production). |
 
 ---

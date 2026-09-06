@@ -259,6 +259,8 @@ export const linkedinJobDiscoveryService: LinkedInJobDiscoveryService = {
 };
 
 export const linkedInJobDiscoveryService = linkedinJobDiscoveryService;
+export const linkedinDiscoveryService = linkedinJobDiscoveryService;
+export type LinkedInDiscoveryService = LinkedInJobDiscoveryService;
 
 /**
  * External job destination implementation for LinkedIn

@@ -56,8 +56,7 @@ export class MockJobProvider implements JobProvider {
 }
 
 export function getProvider(providerName?: string): JobProvider {
-  const selected = providerName || process.env.JOB_PROVIDER;
-  if (selected === 'mock') {
+  if (providerName === 'mock') {
     return new MockJobProvider();
   }
   return new LinkedInJobProvider();

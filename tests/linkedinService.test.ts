@@ -10,7 +10,8 @@ import {
   linkedInDestination,
   linkedinSearchService,
   linkedinJobDiscoveryService,
-  linkedInJobDiscoveryService
+  linkedInJobDiscoveryService,
+  linkedinDiscoveryService
 } from '../src/services/linkedinService';
 
 describe('LinkedIn Service & Search URL Builder', () => {
@@ -282,10 +283,19 @@ describe('LinkedIn Service & Search URL Builder', () => {
       expect(jobUrl).toContain('keywords=DevOps+Lead+Cloud+Corp');
     });
 
-    it('exposes aliased linkedInJobDiscoveryService identically', () => {
+    it('exposes aliased linkedInJobDiscoveryService and linkedinDiscoveryService identically', () => {
       expect(linkedInJobDiscoveryService).toBe(linkedinJobDiscoveryService);
-      expect(typeof linkedInJobDiscoveryService.buildSearchUrl).toBe('function');
-      expect(typeof linkedInJobDiscoveryService.discoverJobs).toBe('function');
+      expect(linkedinDiscoveryService).toBe(linkedinJobDiscoveryService);
+      expect(typeof linkedinDiscoveryService.buildSearchUrl).toBe('function');
+      expect(typeof linkedinDiscoveryService.buildSearchUrlFromProfile).toBe('function');
+      expect(typeof linkedinDiscoveryService.discoverJobs).toBe('function');
+
+      const url = linkedinDiscoveryService.buildSearchUrl({
+        keywords: 'Frontend Engineer',
+        location: 'San Francisco, CA'
+      });
+      expect(url).toContain('keywords=Frontend+Engineer');
+      expect(url).toContain('location=San+Francisco%2C+CA');
     });
 
     it('allows LinkedInJobProvider to construct search URLs via getSearchUrl', async () => {
