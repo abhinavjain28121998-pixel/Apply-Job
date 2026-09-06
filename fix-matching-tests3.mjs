@@ -1,4 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
+import fs from 'fs';
+
+let content = `import { describe, it, expect, vi } from 'vitest';
 import { MatchingService, EvaluatedRequirement } from '../src/services/matchingService.js';
 
 describe('MatchingService Deterministic Scoring', () => {
@@ -84,3 +86,6 @@ describe('MatchingService Deterministic Scoring', () => {
     expect(result.confidenceScore).toBe(0);
   });
 });
+`;
+
+fs.writeFileSync('tests/matchingService.test.ts', content);

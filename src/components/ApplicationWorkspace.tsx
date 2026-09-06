@@ -235,7 +235,7 @@ export default function ApplicationWorkspace() {
           <div className="flex items-center gap-6">
             {/* Match Score */}
             <div className="flex flex-col items-center justify-center bg-slate-50 border border-slate-200 rounded-xl p-3 min-w-[100px]">
-              {match?.matchScore !== undefined ? (
+              {match?.matchScore != null ? (
                 <>
                   <span className={`text-3xl font-bold ${match?.matchScore >= 80 ? 'text-green-600' : match?.matchScore >= 50 ? 'text-amber-500' : 'text-red-500'}`}>
                     {match?.matchScore}%
@@ -304,7 +304,7 @@ export default function ApplicationWorkspace() {
             <h2 className="text-lg font-bold text-slate-800 mb-4 border-b border-slate-100 pb-3 flex items-center gap-2">
               <CheckCircle2 className="w-5 h-5 text-green-600" /> Fit Analysis
             </h2>
-            {match?.matchScore === undefined ? (
+            {match?.matchScore == null ? (
               <p className="text-sm text-slate-500 italic">Analyze the job to see requirements fit.</p>
             ) : (
               <div className="space-y-4">

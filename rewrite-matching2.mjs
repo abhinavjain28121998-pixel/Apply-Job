@@ -1,4 +1,6 @@
-import { GoogleGenAI } from '@google/genai';
+import fs from 'fs';
+
+const matchingServiceCode = `import { GoogleGenAI } from '@google/genai';
 import { JobRecommendation, JobRequirement, ResumeEvidence, WorkExperience } from '../types.js';
 
 export interface EvaluatedRequirement extends JobRequirement {
@@ -57,7 +59,7 @@ export class MatchingService {
   public async extractJobRequirements(jobDescription: string): Promise<JobRequirement[]> {
     if (!this.ai) return [];
     
-    const prompt = `Extract the requirements from this job description into a structured JSON array.
+    const prompt = \`Extract the requirements from this job description into a structured JSON array.
 Each requirement must match this schema:
 {
   "id": "unique-string",
@@ -68,7 +70,7 @@ Each requirement must match this schema:
 }
 
 Job Description:
-${jobDescription}`;
+\${jobDescription}\`;
 
     const response = await this.ai.models.generateContent({
       model: "gemini-2.5-flash",
@@ -102,7 +104,7 @@ ${jobDescription}`;
   public async extractResumeEvidence(baseCv: string): Promise<ResumeEvidence> {
     if (!this.ai) return { skills: [], experience: { totalYears: null, relevantYears: null, roles: [] }, education: '', certifications: [], industries: [], other: '' };
     
-    const prompt = `Extract the candidate's capabilities from this CV into this JSON schema:
+    const prompt = \`Extract the candidate's capabilities from this CV into this JSON schema:
 {
   "skills": ["string"],
   "experience": {
@@ -126,7 +128,7 @@ ${jobDescription}`;
 }
 
 CV:
-${baseCv}`;
+\${baseCv}\`;
 
     const response = await this.ai.models.generateContent({
       model: "gemini-2.5-flash",
@@ -154,17 +156,17 @@ ${baseCv}`;
   public async semanticMatching(requirements: JobRequirement[], evidence: ResumeEvidence): Promise<EvaluatedRequirement[]> {
     if (!this.ai || requirements.length === 0) return [];
     
-    const prompt = `Evaluate if the candidate meets the following job requirements based ONLY on the provided evidence.
+    const prompt = \`Evaluate if the candidate meets the following job requirements based ONLY on the provided evidence.
 Use only: explicit evidence, recognized semantic/terminology equivalents, or UNCLEAR when evidence is insufficient.
 Never infer an unstated qualification.
 
 For each requirement, output a JSON object with matchLevel, evidence found, and if it's an EXPERIENCE requirement, try to extract requiredYears and candidateYears as numbers.
 
 Requirements:
-${JSON.stringify(requirements, null, 2)}
+\${JSON.stringify(requirements, null, 2)}
 
 Candidate Evidence:
-${JSON.stringify(evidence, null, 2)}
+\${JSON.stringify(evidence, null, 2)}
 
 Return a JSON array where each object matches:
 {
@@ -173,7 +175,7 @@ Return a JSON array where each object matches:
   "evidence": "Quoted or summarized evidence from the candidate data, or explanation of missing",
   "requiredYears": number or null,
   "candidateYears": number or null
-}`;
+}\`;
 
     const response = await this.ai.models.generateContent({
       model: "gemini-2.5-flash",
@@ -346,8 +348,8 @@ Return a JSON array where each object matches:
       analysisStatus,
       matchScore: score,
       confidenceScore,
-      matchExplanation: `Match Score: ${score !== null ? score : 'N/A'}/100. ${missingCritical.length > 0 ? 'Missing critical requirements.' : 'Good overall fit.'}`,
-      skillsMatch: `${matchedSkills.length} matched, ${missingRequired.length} required missing.`,
+      matchExplanation: \`Match Score: \${score !== null ? score : 'N/A'}/100. \${missingCritical.length > 0 ? 'Missing critical requirements.' : 'Good overall fit.'}\`,
+      skillsMatch: \`\${matchedSkills.length} matched, \${missingRequired.length} required missing.\`,
       experienceMatch: "Check details",
       seniorityMatch: "Check details",
       industryMatch: "Check details",
@@ -362,3 +364,6 @@ Return a JSON array where each object matches:
     };
   }
 }
+`;
+
+fs.writeFileSync('src/services/matchingService.ts', matchingServiceCode);

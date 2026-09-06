@@ -100,7 +100,7 @@ export default function Dashboard() {
                   </div>
                   <div className="flex items-center gap-4">
                     <div className="text-right">
-                      <p className="text-sm font-medium text-indigo-600">{job.match?.matchScore}% Match</p>
+                      {job.match?.matchScore != null ? <p className="text-sm font-medium text-indigo-600">{job.match.matchScore}% Match</p> : <p className="text-sm font-medium text-slate-400">Not Analyzed</p>}
                     </div>
                     <Link to="/tracker" className="px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-md text-sm font-medium hover:bg-indigo-100 transition-colors">
                       View

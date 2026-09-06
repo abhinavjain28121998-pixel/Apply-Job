@@ -136,7 +136,7 @@ export interface Application {
   datePrepared: number;
   dateApplied?: number;
   followUpDate?: number;
-  matchScore?: number;
+  matchScore?: number | null;
   resumeVersion?: string;
   tailoredCv?: string;
   coverLetter?: string;
@@ -152,7 +152,11 @@ export interface Application {
 
 export interface ResumeEvidence {
   skills: string[];
-  experience: string;
+  experience: {
+    totalYears: number | null;
+    relevantYears: number | null;
+    roles: WorkExperience[];
+  };
   education: string;
   certifications: string[];
   industries: string[];

@@ -135,7 +135,7 @@ export default function JobTracker() {
                   </td>
                   <td className="p-4">
                     <div className="flex items-center gap-2">
-                      {match?.matchScore !== undefined ? (
+                      {match?.matchScore != null ? (
                         <>
                           <div className="w-full bg-slate-200 rounded-full h-2 max-w-[100px]">
                             <div 

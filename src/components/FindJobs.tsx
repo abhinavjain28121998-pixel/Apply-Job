@@ -321,7 +321,7 @@ export default function FindJobs() {
                     </div>
                   </div>
                   
-                  {job.matchScore !== undefined ? (
+                  {job.matchScore != null ? (
                      <div className="flex flex-col items-end">
                        <div className="flex items-center gap-2">
                          <div className={`text-2xl font-bold ${job.matchScore >= 80 ? 'text-green-600' : job.matchScore >= 50 ? 'text-amber-500' : 'text-red-500'}`}>
@@ -351,7 +351,7 @@ export default function FindJobs() {
                   {job.postedDate && <div className="flex items-center gap-1.5"><Clock className="w-4 h-4 text-slate-400" /> {getTimeAgo(job.postedDate)}</div>}
                 </div>
 
-                {job.matchScore !== undefined && (
+                {job.matchScore != null && (
                   <div className="mb-5 bg-slate-50 border border-slate-100 rounded-lg p-4">
                     <p className="text-sm text-slate-700 mb-3">{job.matchExplanation}</p>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
