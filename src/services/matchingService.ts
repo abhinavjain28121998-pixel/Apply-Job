@@ -2,6 +2,7 @@ import { GoogleGenAI } from '@google/genai';
 import { JobRecommendation } from '../types.js';
 
 export interface MatchEvidence {
+  critical?: boolean;
   requirement: string;
   matchLevel: 'MATCHED' | 'MISSING' | 'UNCLEAR';
   evidence: string;
@@ -9,7 +10,6 @@ export interface MatchEvidence {
 
 export interface SkillMatch extends MatchEvidence {
   importance: 'REQUIRED' | 'PREFERRED';
-  critical?: boolean;
 }
 
 export interface ExperienceEvidence extends MatchEvidence {
@@ -18,6 +18,7 @@ export interface ExperienceEvidence extends MatchEvidence {
 }
 
 export interface JobMatchResult {
+  analysisStatus: 'READY' | 'ANALYSIS_UNAVAILABLE' | 'ANALYSIS_FAILED';
   matchScore: number;
   confidenceScore: number;
   matchExplanation: string;
@@ -138,7 +139,8 @@ ${baseCv}`;
 
   private fallbackAnalysis(jobDescription: string, baseCv: string): JobMatchResult {
     return {
-      matchScore: 50,
+      analysisStatus: 'ANALYSIS_UNAVAILABLE',
+      matchScore: 0,
       confidenceScore: 0,
       matchExplanation: "Fallback analysis used due to missing API key or parsing error.",
       skillsMatch: "N/A",
@@ -157,6 +159,11 @@ ${baseCv}`;
   }
 
   public calculateDeterministicScore(evaluation: any): JobMatchResult {
+    let analysisStatus: 'READY' | 'ANALYSIS_UNAVAILABLE' | 'ANALYSIS_FAILED' = 'READY';
+    if (!evaluation || Object.keys(evaluation).length === 0) {
+      analysisStatus = 'ANALYSIS_FAILED';
+      evaluation = {};
+    }
     let totalEarned = 0;
     let totalPossible = 0;
 
@@ -240,7 +247,15 @@ ${baseCv}`;
     if (totalPossible === 0) confidenceScore = 0;
 
     const missingRequired = (evaluation.skills || []).filter((s: any) => s.importance === 'REQUIRED' && s.matchLevel === 'MISSING').map((s: any) => s.requirement);
-    const missingCritical = (evaluation.skills || []).filter((s: any) => s.importance === 'REQUIRED' && s.critical === true && s.matchLevel === 'MISSING').map((s: any) => s.requirement);
+    const missingCritical = [];
+    if (evaluation.skills) missingCritical.push(...evaluation.skills.filter((s: any) => s.critical === true && s.matchLevel === 'MISSING').map((s: any) => s.requirement));
+    if (evaluation.experience?.critical === true && evaluation.experience?.matchLevel === 'MISSING') missingCritical.push(evaluation.experience.requirement);
+    if (evaluation.seniority?.critical === true && evaluation.seniority?.matchLevel === 'MISSING') missingCritical.push(evaluation.seniority.requirement);
+    if (evaluation.responsibilities) missingCritical.push(...evaluation.responsibilities.filter((s: any) => s.critical === true && s.matchLevel === 'MISSING').map((s: any) => s.requirement));
+    if (evaluation.industry?.critical === true && evaluation.industry?.matchLevel === 'MISSING') missingCritical.push(evaluation.industry.requirement);
+    if (evaluation.education?.critical === true && evaluation.education?.matchLevel === 'MISSING') missingCritical.push(evaluation.education.requirement);
+    if (evaluation.location?.critical === true && evaluation.location?.matchLevel === 'MISSING') missingCritical.push(evaluation.location.requirement);
+    if (evaluation.otherFit?.critical === true && evaluation.otherFit?.matchLevel === 'MISSING') missingCritical.push(evaluation.otherFit.requirement);
 
     let recommendation: JobRecommendation = 'APPLY';
     if (score < 40 || missingCritical.length > 0) {
@@ -255,6 +270,7 @@ ${baseCv}`;
     const missingNiceToHave = (evaluation.skills || []).filter((s: any) => s.importance === 'PREFERRED' && s.matchLevel === 'MISSING').map((s: any) => s.requirement);
 
     return {
+      analysisStatus,
       matchScore: score,
       confidenceScore,
       matchExplanation: `Match Score: ${score}/100. ${missingCritical.length > 0 ? 'Missing critical requirements.' : 'Good overall fit.'}`,

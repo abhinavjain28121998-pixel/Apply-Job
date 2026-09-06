@@ -107,6 +107,7 @@ export interface SavedJob {
 }
 
 export interface JobMatch {
+  analysisStatus?: 'READY' | 'ANALYSIS_UNAVAILABLE' | 'ANALYSIS_FAILED';
   id: string; // Typically same as jobId or composite
   userId: string;
   jobId: string;

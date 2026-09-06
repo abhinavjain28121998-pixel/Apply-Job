@@ -19,7 +19,6 @@ export default function ApplicationWorkspace() {
   const [savedJob, setSavedJob] = useState<SavedJob | null>(null);
   const [match, setMatch] = useState<JobMatch | null>(null);
   const [app, setApp] = useState<Application | null>(null);
-  
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   
@@ -33,8 +32,6 @@ export default function ApplicationWorkspace() {
       setLoading(true);
       try {
         if (!id || !user) return;
-        const profileData = await resumeService.getProfile(user.uid);
-        setProfile(profileData);
         const savedJobData = await jobService.getSavedJob(user.uid, id);
         if (savedJobData) {
           const matchData = await jobMatchService.getMatch(user.uid, id);
@@ -61,8 +58,6 @@ export default function ApplicationWorkspace() {
 
   const saveAppState = async (updates: Partial<Application>) => {
     if (!id || !user) return;
-        const profileData = await resumeService.getProfile(user.uid);
-        setProfile(profileData);
     try {
       const updatedApp = await applicationService.createOrUpdateApplication(user.uid, id, updates);
       setApp(updatedApp);
@@ -200,6 +195,12 @@ export default function ApplicationWorkspace() {
   if (loading) return <div className="p-8 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-indigo-600" /></div>;
   if (!job) return <div className="p-8 text-center text-slate-500">Job not found</div>;
 
+  const [profile, setProfile] = useState<any>(null);
+  useEffect(() => {
+    if (user) {
+      resumeService.getProfile(user.uid).then(setProfile).catch(console.error);
+    }
+  }, [user]);
 
   // We need to parse out the individual pieces that were merged into "job".
   // Actually, job currently is merged. Let's unmerge or pass it.

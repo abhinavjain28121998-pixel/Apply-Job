@@ -55,6 +55,24 @@ describe('MatchingService Deterministic Scoring', () => {
     expect(result.recommendation).toBe('APPLY_WITH_CHANGES'); 
   });
 
+  it('missing critical certification (other category)', () => {
+    const evalMock = {
+      education: { requirement: 'AWS Certified', critical: true, matchLevel: 'MISSING' },
+      experience: { requirement: 'Req', matchLevel: 'MATCHED' }
+    };
+    const result = matchingService.calculateDeterministicScore(evalMock);
+    expect(result.recommendation).toBe('SKIP');
+  });
+
+  it('missing critical education', () => {
+    const evalMock = {
+      education: { requirement: 'Bachelors Degree', critical: true, matchLevel: 'MISSING' },
+      experience: { requirement: 'Req', matchLevel: 'MATCHED' }
+    };
+    const result = matchingService.calculateDeterministicScore(evalMock);
+    expect(result.recommendation).toBe('SKIP');
+  });
+
   it('missing critical skill', () => {
     const evalMock = {
       skills: [
@@ -69,6 +87,13 @@ describe('MatchingService Deterministic Scoring', () => {
     const result = matchingService.calculateDeterministicScore(evalMock);
     // Despite high score, critical missing = SKIP
     expect(result.recommendation).toBe('SKIP');
+  });
+
+  it('unavailable AI analysis', () => {
+    // When AI parsing fails or is empty, we set analysisStatus = ANALYSIS_FAILED
+    const evalMock = null;
+    const result = matchingService.calculateDeterministicScore(evalMock);
+    expect(result.analysisStatus).toBe('ANALYSIS_FAILED');
   });
 
   it('no extracted requirements', () => {
