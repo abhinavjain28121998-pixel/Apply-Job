@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { requireAuth } from '../server/auth.js';
 import { createRateLimiter } from '../server/rateLimit.js';
-import { _setFirebaseAuth } from '../server/firebaseAdmin.js';
+import { _setFirebaseAuth, resolveFirebaseProjectId } from '../server/firebaseAdmin.js';
 import { Request, Response } from 'express';
 
 function createMockResponse() {
@@ -20,7 +20,7 @@ function createMockResponse() {
   return res as Response & { statusCode: number; jsonData: any };
 }
 
-describe('Server Authentication & Rate Limiting Tests', () => {
+describe('Server Authentication & Hardened Security Tests', () => {
   const originalEnv = process.env;
   let mockVerifyIdToken = vi.fn();
 
@@ -38,7 +38,7 @@ describe('Server Authentication & Rate Limiting Tests', () => {
     _setFirebaseAuth(null);
   });
 
-  it('no Authorization header => 401', async () => {
+  it('no Authorization header -> 401', async () => {
     const req = { headers: {} } as Request;
     const res = createMockResponse();
     const next = vi.fn();
@@ -50,12 +50,13 @@ describe('Server Authentication & Rate Limiting Tests', () => {
     expect(next).not.toHaveBeenCalled();
   });
 
-  it('malformed Bearer header => 401', async () => {
+  it('malformed Authorization header -> 401', async () => {
     const invalidHeaders = [
       'Basic 12345',
       'Bearer',
       'Bearer    ',
       'Token some-token',
+      'bearer',
     ];
 
     for (const header of invalidHeaders) {
@@ -71,23 +72,41 @@ describe('Server Authentication & Rate Limiting Tests', () => {
     }
   });
 
-  it('invalid Firebase token => 401', async () => {
+  it('arbitrary Bearer token -> 401', async () => {
     process.env.ALLOW_DEMO_AUTH = 'false';
-    mockVerifyIdToken.mockRejectedValue(new Error('Firebase ID token is invalid or expired.'));
+    mockVerifyIdToken.mockRejectedValue(new Error('Decoding Firebase ID token failed. Make sure you passed the entire string.'));
 
-    const req = { headers: { authorization: 'Bearer invalid.firebase.token' } } as Request;
+    const req = { headers: { authorization: 'Bearer arbitrary-random-token-xyz' } } as Request;
     const res = createMockResponse();
     const next = vi.fn();
 
     await requireAuth(req, res, next);
 
-    expect(mockVerifyIdToken).toHaveBeenCalledWith('invalid.firebase.token', true);
+    expect(mockVerifyIdToken).toHaveBeenCalledWith('arbitrary-random-token-xyz', true);
     expect(res.statusCode).toBe(401);
     expect(res.jsonData?.error).toContain('Token verification failed');
     expect(next).not.toHaveBeenCalled();
   });
 
-  it('valid Firebase token => request proceeds and attaches req.user', async () => {
+  it('invalid Firebase token -> 401', async () => {
+    process.env.ALLOW_DEMO_AUTH = 'false';
+    const authError: any = new Error('Firebase ID token is expired.');
+    authError.code = 'auth/id-token-expired';
+    mockVerifyIdToken.mockRejectedValue(authError);
+
+    const req = { headers: { authorization: 'Bearer expired.firebase.jwt.token' } } as Request;
+    const res = createMockResponse();
+    const next = vi.fn();
+
+    await requireAuth(req, res, next);
+
+    expect(mockVerifyIdToken).toHaveBeenCalledWith('expired.firebase.jwt.token', true);
+    expect(res.statusCode).toBe(401);
+    expect(res.jsonData?.error).toContain('auth/id-token-expired');
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('valid Firebase token -> authenticated', async () => {
     process.env.ALLOW_DEMO_AUTH = 'false';
     mockVerifyIdToken.mockResolvedValue({
       uid: 'firebase-user-999',
@@ -110,11 +129,11 @@ describe('Server Authentication & Rate Limiting Tests', () => {
     expect(req.user?.isDemo).toBe(false);
   });
 
-  it('production rejects demo-token', async () => {
-    // ALLOW_DEMO_AUTH is explicitly false or not set
+  it('demo token rejected when ALLOW_DEMO_AUTH=false', async () => {
     process.env.ALLOW_DEMO_AUTH = 'false';
+    process.env.DEMO_AUTH_TOKEN = 'demo-secret-key';
 
-    const req = { headers: { authorization: 'Bearer demo-token' } } as Request;
+    const req = { headers: { authorization: 'Bearer demo-secret-key' } } as Request;
     const res = createMockResponse();
     const next = vi.fn();
 
@@ -126,11 +145,27 @@ describe('Server Authentication & Rate Limiting Tests', () => {
     expect(mockVerifyIdToken).not.toHaveBeenCalled();
   });
 
-  it('controlled demo mode works only when explicitly enabled', async () => {
-    // Enable demo auth explicitly
+  it('wrong demo token rejected when ALLOW_DEMO_AUTH=true', async () => {
     process.env.ALLOW_DEMO_AUTH = 'true';
+    process.env.DEMO_AUTH_TOKEN = 'configured-secret-token';
 
-    const req = { headers: { authorization: 'Bearer demo-token' } } as Request;
+    const req = { headers: { authorization: 'Bearer wrong-demo-token' } } as Request;
+    const res = createMockResponse();
+    const next = vi.fn();
+
+    await requireAuth(req, res, next);
+
+    expect(res.statusCode).toBe(401);
+    expect(res.jsonData?.error).toContain('Invalid demo authentication token');
+    expect(next).not.toHaveBeenCalled();
+    expect(mockVerifyIdToken).not.toHaveBeenCalled();
+  });
+
+  it('exact DEMO_AUTH_TOKEN accepted when ALLOW_DEMO_AUTH=true', async () => {
+    process.env.ALLOW_DEMO_AUTH = 'true';
+    process.env.DEMO_AUTH_TOKEN = 'custom-configured-demo-token';
+
+    const req = { headers: { authorization: 'Bearer custom-configured-demo-token' } } as Request;
     const res = createMockResponse();
     const next = vi.fn();
 
@@ -140,9 +175,10 @@ describe('Server Authentication & Rate Limiting Tests', () => {
     expect(req.user).toBeDefined();
     expect(req.user?.uid).toBe('demo-user-123');
     expect(req.user?.isDemo).toBe(true);
+    expect(mockVerifyIdToken).not.toHaveBeenCalled();
   });
 
-  it('rate limit returns 429 when max requests are exceeded', () => {
+  it('rate limit returns 429', () => {
     const testRateLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 3 });
 
     const req = {
@@ -170,7 +206,7 @@ describe('Server Authentication & Rate Limiting Tests', () => {
     expect(next4).not.toHaveBeenCalled();
   });
 
-  it('rate limiting separates requests by authenticated uid', () => {
+  it('authenticated rate limiting uses req.user.uid', () => {
     const testRateLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 2 });
 
     const reqUserA = {
@@ -179,11 +215,11 @@ describe('Server Authentication & Rate Limiting Tests', () => {
     } as any;
 
     const reqUserB = {
-      ip: '10.0.0.1', // Same IP!
+      ip: '10.0.0.1', // Same IP address!
       user: { uid: 'user-B', email: 'b@example.com' }
     } as any;
 
-    // User A hits limit
+    // User A consumes quota
     for (let i = 0; i < 2; i++) {
       const res = createMockResponse();
       const next = vi.fn();
@@ -201,5 +237,31 @@ describe('Server Authentication & Rate Limiting Tests', () => {
     testRateLimiter(reqUserB, resB, nextB);
     expect(nextB).toHaveBeenCalled();
     expect(resB.statusCode).toBe(200);
+  });
+
+  it('resolveFirebaseProjectId does not return hard-coded fallback', () => {
+    // Clean environment
+    delete process.env.FIREBASE_PROJECT_ID;
+    delete process.env.GCP_PROJECT;
+    delete process.env.GCLOUD_PROJECT;
+    delete process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+
+    // Must never return 'graceful-etching-qt8c4' if not configured
+    const resolved = resolveFirebaseProjectId();
+    expect(resolved).not.toBe('graceful-etching-qt8c4');
+
+    // Test explicit FIREBASE_PROJECT_ID
+    process.env.FIREBASE_PROJECT_ID = 'my-custom-project';
+    expect(resolveFirebaseProjectId()).toBe('my-custom-project');
+
+    // Test GCP_PROJECT
+    delete process.env.FIREBASE_PROJECT_ID;
+    process.env.GCP_PROJECT = 'gcp-project-id';
+    expect(resolveFirebaseProjectId()).toBe('gcp-project-id');
+
+    // Test service account key json
+    delete process.env.GCP_PROJECT;
+    process.env.FIREBASE_SERVICE_ACCOUNT_KEY = JSON.stringify({ project_id: 'sa-project-id' });
+    expect(resolveFirebaseProjectId()).toBe('sa-project-id');
   });
 });
