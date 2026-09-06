@@ -6,6 +6,9 @@ import {defineConfig} from 'vite';
 export default defineConfig(() => {
   return {
     plugins: [react(), tailwindcss()],
+    define: {
+      'import.meta.env.VITE_DEMO_AUTH_TOKEN': JSON.stringify(process.env.DEMO_AUTH_TOKEN || 'demo-token'),
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

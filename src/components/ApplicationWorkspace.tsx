@@ -10,6 +10,7 @@ import { SavedJob, JobMatch, Application } from '../types';
 import { calculateApplicationReadiness } from '../services/applicationReadinessService';
 import { CheckCircle2, ChevronLeft, AlertTriangle, ExternalLink, RefreshCw, FileText, FileSignature, Save, MessageSquare, Briefcase, Loader2, Info } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import { safeFetchJson } from '../lib/api';
 
 export default function ApplicationWorkspace() {
   const { id } = useParams<{ id: string }>();
@@ -96,16 +97,19 @@ export default function ApplicationWorkspace() {
     setGenerating('analysis');
     try {
       const profile = await resumeService.getProfile(user.uid);
-      const res = await fetch('/api/analyze-job', {
+      const token = await getToken();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const result = await safeFetchJson('/api/analyze-job', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           jobDescription: savedJob?.job?.description,
-          baseCv: profile.baseCvText
+          baseCv: profile?.baseCvText || ''
         })
       });
-      if (res.ok) {
-        const analysis = await res.json();
+      if (result.ok && result.data) {
+        const analysis = result.data;
         const newMatch = { ...analysis, jobId: id!, userId: user.uid };
         await jobMatchService.saveMatch(newMatch);
         setMatch(newMatch);
@@ -123,12 +127,14 @@ export default function ApplicationWorkspace() {
     try {
       const profile = await resumeService.getProfile(user.uid);
       const token = await getToken();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
       const res = await fetch('/api/generate-cover-letter', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        headers,
         body: JSON.stringify({
           jobDescription: savedJob?.job?.description,
-          baseCv: profile.baseCvText,
+          baseCv: profile?.baseCvText || '',
           company: savedJob?.job?.company,
           title: savedJob?.job?.title
         })
@@ -151,18 +157,20 @@ export default function ApplicationWorkspace() {
     try {
       const profile = await resumeService.getProfile(user.uid);
       const token = await getToken();
-      const res = await fetch('/api/generate-answers', {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const result = await safeFetchJson('/api/generate-answers', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        headers,
         body: JSON.stringify({
           jobDescription: savedJob?.job?.description,
-          baseCv: profile.baseCvText,
+          baseCv: profile?.baseCvText || '',
           company: savedJob?.job?.company,
           title: savedJob?.job?.title
         })
       });
-      if (res.ok) {
-        const data = await res.json();
+      if (result.ok && result.data) {
+        const data = result.data;
         setAnswers(data);
         await saveAppState({ applicationAnswers: data });
       }
@@ -179,18 +187,20 @@ export default function ApplicationWorkspace() {
     try {
       const profile = await resumeService.getProfile(user.uid);
       const token = await getToken();
-      const res = await fetch('/api/tailor-application', {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const result = await safeFetchJson('/api/tailor-application', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        headers,
         body: JSON.stringify({
           jobDescription: savedJob?.job?.description,
-          baseCv: profile.baseCvText,
+          baseCv: profile?.baseCvText || '',
           company: savedJob?.job?.company,
           title: savedJob?.job?.title
         })
       });
-      if (res.ok) {
-        const data = await res.json();
+      if (result.ok && result.data) {
+        const data = result.data;
         const updates: Partial<Application> = {
           bulletImprovements: data.bulletImprovements,
           tailoredCv: data.tailoredCv,

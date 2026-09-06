@@ -28,6 +28,13 @@ export interface JobMatchResult {
   details: any;
 }
 
+const GEMINI_MODELS_CASCADE = [
+  'gemini-3.8-flash',
+  'gemini-3.6-flash',
+  'gemini-3.1-flash-lite',
+  'gemini-flash-latest'
+];
+
 export class MatchingService {
   private ai: GoogleGenAI | null = null;
 
@@ -35,6 +42,50 @@ export class MatchingService {
     const key = apiKey || process.env.GEMINI_API_KEY;
     if (key) {
       this.ai = new GoogleGenAI({ apiKey: key });
+    }
+  }
+
+  private async generateWithCascade(prompt: string, config: any = {}): Promise<string> {
+    if (!this.ai) {
+      throw new Error('GEMINI_API_KEY is not configured');
+    }
+
+    let lastError: any = null;
+    for (const model of GEMINI_MODELS_CASCADE) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const response = await this.ai.models.generateContent({
+            model,
+            contents: prompt,
+            config
+          });
+          if (response && response.text) {
+            return response.text;
+          }
+        } catch (err: any) {
+          lastError = err;
+          const status = err?.status || err?.code;
+          if (status === 404) break; // Deprecated or invalid model, skip directly
+          if ((status === 503 || status === 429) && attempt === 0) {
+            await new Promise(r => setTimeout(r, 400));
+          }
+        }
+      }
+    }
+
+    throw lastError || new Error('Failed to generate response across Gemini models');
+  }
+
+  private parseJson<T>(rawText: string, fallback: T): T {
+    if (!rawText) return fallback;
+    let cleaned = rawText.trim();
+    if (cleaned.startsWith('```')) {
+      cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+    }
+    try {
+      return JSON.parse(cleaned);
+    } catch {
+      return fallback;
     }
   }
 
@@ -71,15 +122,14 @@ Each requirement must match this schema:
 Job Description:
 ${jobDescription}`;
 
-    const response = await this.ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: prompt,
-      config: { responseMimeType: "application/json", temperature: 0.1 }
+    const responseText = await this.generateWithCascade(prompt, {
+      responseMimeType: "application/json",
+      temperature: 0.1
     });
     
     let reqs = [];
     try {
-      let parsed = JSON.parse(response.text || "[]");
+      let parsed = this.parseJson<any>(responseText, []);
       if (!Array.isArray(parsed)) parsed = parsed.requirements || [];
       
       const validCategories = ['SKILL', 'EXPERIENCE', 'SENIORITY', 'RESPONSIBILITY', 'INDUSTRY', 'EDUCATION', 'CERTIFICATION', 'LOCATION', 'OTHER'];
@@ -129,15 +179,13 @@ ${jobDescription}`;
 CV:
 ${baseCv}`;
 
-    const response = await this.ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: prompt,
-      config: { responseMimeType: "application/json", temperature: 0.1 }
-    });
-    
     let parsed: any = {};
     try {
-      parsed = JSON.parse(response.text || "{}");
+      const responseText = await this.generateWithCascade(prompt, {
+        responseMimeType: "application/json",
+        temperature: 0.1
+      });
+      parsed = this.parseJson<any>(responseText, {});
     } catch (e) {
       console.error("Failed to parse resume evidence:", e);
     }
@@ -176,15 +224,13 @@ Return a JSON array where each object matches:
   "candidateYears": number or null
 }`;
 
-    const response = await this.ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: prompt,
-      config: { responseMimeType: "application/json", temperature: 0.1 }
-    });
-    
     let matched = [];
     try {
-      let parsed = JSON.parse(response.text || "[]");
+      const responseText = await this.generateWithCascade(prompt, {
+        responseMimeType: "application/json",
+        temperature: 0.1
+      });
+      let parsed = this.parseJson<any>(responseText, []);
       if (!Array.isArray(parsed)) parsed = parsed.matches || [];
       matched = parsed;
     } catch (e) {

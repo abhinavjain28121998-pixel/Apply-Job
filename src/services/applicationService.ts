@@ -1,6 +1,7 @@
-import { collection, query, where, getDocs, doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, setDoc, updateDoc } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '../firebase';
 import { Application, JobStatus } from '../types';
+import { handleFirestoreError, OperationType, shouldUseFirestore } from '../lib/firestoreError';
 
 // Helper for local storage mock
 const getLocalApps = (): Application[] => {
@@ -16,10 +17,15 @@ const setLocalApps = (apps: Application[]) => {
 
 export const applicationService = {
   getApplicationsForUser: async (userId: string): Promise<Application[]> => {
-    if (isFirebaseConfigured() && db) {
-      const q = query(collection(db, 'applications'), where('userId', '==', userId));
-      const snapshot = await getDocs(q);
-      return snapshot.docs.map(doc => doc.data() as Application);
+    if (isFirebaseConfigured() && db && shouldUseFirestore(userId)) {
+      const path = 'applications';
+      try {
+        const q = query(collection(db, path), where('userId', '==', userId));
+        const snapshot = await getDocs(q);
+        return snapshot.docs.map(doc => doc.data() as Application);
+      } catch (error) {
+        handleFirestoreError(error, OperationType.LIST, path);
+      }
     } else {
       return getLocalApps().filter(a => a.userId === userId);
     }
@@ -27,13 +33,18 @@ export const applicationService = {
   
   // We now fetch by querying jobId and userId instead of using a composite doc ID
   getApplication: async (userId: string, jobId: string): Promise<Application | null> => {
-    if (isFirebaseConfigured() && db) {
-      const q = query(collection(db, 'applications'), where('userId', '==', userId), where('jobId', '==', jobId));
-      const snapshot = await getDocs(q);
-      if (!snapshot.empty) {
-        return snapshot.docs[0].data() as Application;
+    if (isFirebaseConfigured() && db && shouldUseFirestore(userId)) {
+      const path = 'applications';
+      try {
+        const q = query(collection(db, path), where('userId', '==', userId), where('jobId', '==', jobId));
+        const snapshot = await getDocs(q);
+        if (!snapshot.empty) {
+          return snapshot.docs[0].data() as Application;
+        }
+        return null;
+      } catch (error) {
+        handleFirestoreError(error, OperationType.LIST, path);
       }
-      return null;
     } else {
       return getLocalApps().find(a => a.userId === userId && a.jobId === jobId) || null;
     }
@@ -59,8 +70,13 @@ export const applicationService = {
       } as Application;
     }
 
-    if (isFirebaseConfigured() && db) {
-      await setDoc(doc(db, 'applications', app.id), app);
+    if (isFirebaseConfigured() && db && shouldUseFirestore(userId)) {
+      const path = `applications/${app.id}`;
+      try {
+        await setDoc(doc(db, 'applications', app.id), app);
+      } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, path);
+      }
     } else {
       const apps = getLocalApps();
       const idx = apps.findIndex(a => a.id === app.id);
@@ -76,8 +92,13 @@ export const applicationService = {
     
     const existing = await applicationService.getApplication(userId, jobId);
     if (existing) {
-      if (isFirebaseConfigured() && db) {
-        await updateDoc(doc(db, 'applications', existing.id), updates);
+      if (isFirebaseConfigured() && db && shouldUseFirestore(userId)) {
+        const path = `applications/${existing.id}`;
+        try {
+          await updateDoc(doc(db, 'applications', existing.id), updates);
+        } catch (error) {
+          handleFirestoreError(error, OperationType.UPDATE, path);
+        }
       } else {
         const apps = getLocalApps();
         const idx = apps.findIndex(a => a.id === existing.id);

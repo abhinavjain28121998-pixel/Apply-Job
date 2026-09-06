@@ -24,12 +24,9 @@ export default function Dashboard() {
       try {
         const savedJobsList = await jobService.getSavedJobsForUser(user.uid);
         const apps = await applicationService.getApplicationsForUser(user.uid);
+        const matches = await jobMatchService.getMatchesForUser(user.uid);
         const appMap = new Map(apps.map(a => [a.jobId, a]));
-        
-        const matchPromises = savedJobsList.map(sj => jobMatchService.getMatch(user.uid, sj.jobId));
-        const matches = await Promise.all(matchPromises);
-        const matchMap = new Map();
-        matches.forEach(m => { if (m) matchMap.set(m.jobId, m); });
+        const matchMap = new Map(matches.map(m => [m.jobId, m]));
 
         const combined = savedJobsList.map(sj => ({
           saved: sj,

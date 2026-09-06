@@ -90,7 +90,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const getToken = async () => {
-    if (user?.isDemo) return 'demo-token';
+    if (user?.isDemo) {
+      if (import.meta.env?.VITE_DEMO_AUTH_TOKEN) {
+        return import.meta.env.VITE_DEMO_AUTH_TOKEN;
+      }
+      try {
+        const res = await fetch('/api/auth/demo-token');
+        const ct = res.headers.get('content-type') || '';
+        if (res.ok && ct.includes('application/json')) {
+          const data = await res.json();
+          if (data?.token) return data.token;
+        }
+      } catch (e) {
+        console.warn('Failed to fetch demo token from server:', e);
+      }
+      return 'demo-token';
+    }
     if (isFirebaseConfigured() && auth && auth.currentUser) {
       try { return await auth.currentUser.getIdToken(); } catch (e) { return ''; }
     }

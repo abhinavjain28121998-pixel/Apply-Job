@@ -1,0 +1,91 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User profile, CV and personal career preferences",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Unique user ID matching auth.uid" },
+        "email": { "type": "string", "description": "User email address" },
+        "displayName": { "type": "string", "description": "User display name" },
+        "photoURL": { "type": "string", "description": "User avatar URL" },
+        "baseCvText": { "type": "string", "description": "Base CV plain text", "maxLength": 50000 },
+        "summary": { "type": "string", "description": "Executive summary", "maxLength": 5000 },
+        "currentRole": { "type": "string", "description": "Current title or target role", "maxLength": 200 },
+        "totalExperience": { "type": "number", "description": "Years of experience" },
+        "updatedAt": { "type": "number", "description": "Last updated timestamp" }
+      },
+      "required": ["userId"]
+    },
+    "SavedJob": {
+      "title": "Saved Job",
+      "description": "A job opportunity bookmarked by the user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Composite doc ID: userId_jobId" },
+        "userId": { "type": "string", "description": "Owning user UID" },
+        "jobId": { "type": "string", "description": "Target job identifier" },
+        "dateAdded": { "type": "number", "description": "Timestamp when saved" },
+        "notes": { "type": "string", "description": "Personal candidate notes", "maxLength": 5000 }
+      },
+      "required": ["id", "userId", "jobId", "dateAdded"]
+    },
+    "JobMatch": {
+      "title": "Job Match Analysis",
+      "description": "AI analysis scoring match between user CV and target job",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Composite doc ID: userId_jobId" },
+        "userId": { "type": "string", "description": "Owning user UID" },
+        "jobId": { "type": "string", "description": "Target job identifier" },
+        "matchScore": { "type": "number", "description": "Calculated match percentage (0-100)" },
+        "recommendation": { "type": "string", "description": "Action advice", "enum": ["APPLY", "CAUTION", "SKIP"] },
+        "recommendationReason": { "type": "string", "description": "Detailed reasoning", "maxLength": 2000 },
+        "analyzedAt": { "type": "number", "description": "Timestamp when analyzed" }
+      },
+      "required": ["id", "userId", "jobId", "matchScore", "recommendation", "analyzedAt"]
+    },
+    "Application": {
+      "title": "Application",
+      "description": "Application tracker record with tailored materials",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique application UUID" },
+        "userId": { "type": "string", "description": "Owning user UID" },
+        "jobId": { "type": "string", "description": "Associated job identifier" },
+        "status": {
+          "type": "string",
+          "description": "Application pipeline status",
+          "enum": ["SAVED", "PREPARING", "READY", "APPLIED", "INTERVIEW", "OFFER", "REJECTED"]
+        },
+        "datePrepared": { "type": "number", "description": "Timestamp when materials prepared" },
+        "dateApplied": { "type": "number", "description": "Timestamp when application submitted" },
+        "notes": { "type": "string", "description": "User notes", "maxLength": 5000 },
+        "tailoredCv": { "type": "string", "description": "Tailored CV content", "maxLength": 50000 },
+        "coverLetter": { "type": "string", "description": "Cover letter text", "maxLength": 20000 },
+        "updatedSummary": { "type": "string", "description": "Tailored summary", "maxLength": 5000 },
+        "createdAt": { "type": "number", "description": "Creation timestamp" },
+        "updatedAt": { "type": "number", "description": "Update timestamp" }
+      },
+      "required": ["id", "userId", "jobId", "status", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User private profile and base CV data"
+    },
+    "/saved_jobs/{docId}": {
+      "schema": { "$ref": "#/entities/SavedJob" },
+      "description": "Saved job postings for a specific user"
+    },
+    "/job_matches/{docId}": {
+      "schema": { "$ref": "#/entities/JobMatch" },
+      "description": "AI match reports comparing user CV against a saved job"
+    },
+    "/applications/{docId}": {
+      "schema": { "$ref": "#/entities/Application" },
+      "description": "Application tracking and tailored application documents"
+    }
+  }
+}

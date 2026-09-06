@@ -1,6 +1,7 @@
 import { collection, query, where, getDocs, doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '../firebase';
-import { SavedJob, Job, JobMatch } from '../types';
+import { SavedJob, Job } from '../types';
+import { handleFirestoreError, OperationType, shouldUseFirestore } from '../lib/firestoreError';
 
 // Helper for local storage mock
 const getLocalSavedJobs = (): SavedJob[] => {
@@ -16,10 +17,15 @@ const setLocalSavedJobs = (jobs: SavedJob[]) => {
 
 export const jobService = {
   getSavedJobsForUser: async (userId: string): Promise<SavedJob[]> => {
-    if (isFirebaseConfigured() && db) {
-      const q = query(collection(db, 'saved_jobs'), where('userId', '==', userId));
-      const snapshot = await getDocs(q);
-      return snapshot.docs.map(doc => doc.data() as SavedJob);
+    if (isFirebaseConfigured() && db && shouldUseFirestore(userId)) {
+      const path = 'saved_jobs';
+      try {
+        const q = query(collection(db, path), where('userId', '==', userId));
+        const snapshot = await getDocs(q);
+        return snapshot.docs.map(doc => doc.data() as SavedJob);
+      } catch (error) {
+        handleFirestoreError(error, OperationType.LIST, path);
+      }
     } else {
       return getLocalSavedJobs().filter(j => j.userId === userId);
     }
@@ -27,12 +33,17 @@ export const jobService = {
   
   getSavedJob: async (userId: string, jobId: string): Promise<SavedJob | null> => {
     const docId = `${userId}_${jobId}`; // Kept unique by composite because user can only save a specific job once
-    if (isFirebaseConfigured() && db) {
-      const docSnap = await getDoc(doc(db, 'saved_jobs', docId));
-      if (docSnap.exists()) {
-        return docSnap.data() as SavedJob;
+    if (isFirebaseConfigured() && db && shouldUseFirestore(userId)) {
+      const path = `saved_jobs/${docId}`;
+      try {
+        const docSnap = await getDoc(doc(db, 'saved_jobs', docId));
+        if (docSnap.exists()) {
+          return docSnap.data() as SavedJob;
+        }
+        return null;
+      } catch (error) {
+        handleFirestoreError(error, OperationType.GET, path);
       }
-      return null;
     } else {
       return getLocalSavedJobs().find(j => j.id === docId) || null;
     }
@@ -48,8 +59,13 @@ export const jobService = {
       dateAdded: Date.now()
     };
 
-    if (isFirebaseConfigured() && db) {
-      await setDoc(doc(db, 'saved_jobs', docId), savedJob);
+    if (isFirebaseConfigured() && db && shouldUseFirestore(userId)) {
+      const path = `saved_jobs/${docId}`;
+      try {
+        await setDoc(doc(db, 'saved_jobs', docId), savedJob);
+      } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, path);
+      }
     } else {
       const jobs = getLocalSavedJobs();
       const idx = jobs.findIndex(j => j.id === docId);
@@ -62,8 +78,13 @@ export const jobService = {
 
   updateSavedJob: async (userId: string, jobId: string, updates: Partial<SavedJob>): Promise<void> => {
     const docId = `${userId}_${jobId}`; // Kept unique by composite because user can only save a specific job once
-    if (isFirebaseConfigured() && db) {
-      await updateDoc(doc(db, 'saved_jobs', docId), updates as any);
+    if (isFirebaseConfigured() && db && shouldUseFirestore(userId)) {
+      const path = `saved_jobs/${docId}`;
+      try {
+        await updateDoc(doc(db, 'saved_jobs', docId), updates as any);
+      } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, path);
+      }
     } else {
       const jobs = getLocalSavedJobs();
       const idx = jobs.findIndex(j => j.id === docId);

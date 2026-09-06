@@ -26,6 +26,9 @@ export interface UserProfile {
   id: string;
   userId: string;
   baseCvText: string;
+  uploadedFileName?: string;
+  uploadedFileSize?: number;
+  uploadedFileDate?: string;
   summary?: string;
   totalExperience?: number;
   currentRole?: string;

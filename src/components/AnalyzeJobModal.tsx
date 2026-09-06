@@ -4,6 +4,7 @@ import { Job } from '../types';
 import { X, Loader2 } from 'lucide-react';
 import { jobService } from '../services/jobService';
 import { resumeService } from '../services/resumeService';
+import { safeFetchJson } from '../lib/api';
 
 export default function AnalyzeJobModal({ onClose, onJobAdded }: { onClose: () => void, onJobAdded: () => void }) {
   const { user, getToken } = useAuth();
@@ -30,17 +31,21 @@ export default function AnalyzeJobModal({ onClose, onJobAdded }: { onClose: () =
 
       // 2. Call backend for analysis
       const token = await getToken();
-      const res = await fetch('/api/analyze-job', {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      const result = await safeFetchJson('/api/analyze-job', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        headers,
         body: JSON.stringify({ jobDescription: description, baseCv })
       });
 
-      if (!res.ok) {
-        throw new Error("Failed to analyze job.");
+      if (!result.ok || !result.data) {
+        throw new Error(result.error || "Failed to analyze job.");
       }
 
-      const analysis = await res.json();
+      const analysis = result.data;
 
       // 3. Save to Firestore
       

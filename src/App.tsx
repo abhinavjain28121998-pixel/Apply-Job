@@ -9,6 +9,7 @@ import { Briefcase, LayoutDashboard, UserCircle, LogOut, Search } from 'lucide-r
 import { AuthProvider, useAuth } from './AuthContext';
 import { isFirebaseConfigured } from './firebase';
 import { cn } from './lib/utils';
+import { safeFetchJson } from './lib/api';
 import Dashboard from './components/Dashboard';
 import JobTracker from './components/JobTracker';
 import ProfileSettings from './components/ProfileSettings';
@@ -39,20 +40,18 @@ function Login() {
         {hasFirebase && (
           <button
             onClick={signIn}
-            className="w-full bg-indigo-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-indigo-700 transition-colors mb-4"
+            className="w-full bg-indigo-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-indigo-700 transition-colors mb-3"
           >
             Sign in with Google
           </button>
         )}
 
-        {!hasFirebase && (
-          <button
-            onClick={signInDemo}
-            className="w-full bg-slate-800 text-white py-3 px-4 rounded-lg font-medium hover:bg-slate-900 transition-colors"
-          >
-            Continue in Demo Mode
-          </button>
-        )}
+        <button
+          onClick={signInDemo}
+          className="w-full bg-slate-800 text-white py-3 px-4 rounded-lg font-medium hover:bg-slate-900 transition-colors"
+        >
+          Continue in Demo Mode
+        </button>
       </div>
     </div>
   );
@@ -64,12 +63,15 @@ function Layout({ children }: { children: React.ReactNode }) {
   const [providerStatus, setProviderStatus] = React.useState<any>(null);
   
   React.useEffect(() => {
-    fetch('/api/provider/status')
-    .then(res => res.json())
-    .then(data => {
-       if (data && data.status) setProviderStatus(data.status);
-    })
-    .catch(console.error);
+    safeFetchJson('/api/provider/status')
+      .then(result => {
+        if (result.ok && result.data?.status) {
+          setProviderStatus(result.data.status);
+        }
+      })
+      .catch((err) => {
+        console.warn('Failed to fetch provider status:', err);
+      });
   }, []);
   
   return (

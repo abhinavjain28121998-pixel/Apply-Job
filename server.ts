@@ -3,15 +3,18 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import 'dotenv/config';
+import { PDFParse } from 'pdf-parse';
+import mammoth from 'mammoth';
 import { getProvider, deduplicateJobs } from './server/providers.js';
-import { requireAuth } from './server/auth.js';
+import { requireAuth, isDemoAuthAllowed, getDemoAuthToken } from './server/auth.js';
 import { rateLimit } from './server/rateLimit.js';
+import { generateWithGeminiCascade, parseGeminiJson, isGeminiAvailable } from './server/geminiService.js';
 import './server/types.js';
 
 export function createApiApp() {
   const app = express();
 
-  app.use(express.json({ limit: '5mb' }));
+  app.use(express.json({ limit: '15mb' }));
 
   // Check Gemini API key
   const ai = process.env.GEMINI_API_KEY ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }) : null;
@@ -76,7 +79,164 @@ export function createApiApp() {
     }
   });
 
-  
+  // Helper to extract text from PDF
+  async function extractPdfText(buffer: Buffer): Promise<string> {
+    const parser = new PDFParse({ data: buffer });
+    try {
+      const result = await parser.getText({ pageJoiner: '\n\n' });
+      return result?.text ? result.text.trim() : '';
+    } finally {
+      try {
+        await parser.destroy();
+      } catch {}
+    }
+  }
+
+  // Helper to extract text from DOCX
+  async function extractDocxText(buffer: Buffer): Promise<string> {
+    const mammothLib: any = mammoth;
+    const extractFn = mammothLib.extractRawText || mammothLib.default?.extractRawText;
+    if (!extractFn) {
+      throw new Error("DOCX parser not available");
+    }
+    const result = await extractFn({ buffer });
+    return result?.value ? result.value.trim() : '';
+  }
+
+  // Upload and parse CV file (PDF, DOCX, TXT, MD)
+  app.post("/api/upload-cv", requireAuth, rateLimit, async (req, res) => {
+    try {
+      const { filename, mimeType, base64Data, autoExtract } = req.body;
+      if (!base64Data || typeof base64Data !== 'string') {
+        return res.status(400).json({ error: "Missing or invalid base64Data in request" });
+      }
+
+      // Strip data URI scheme prefix if included (e.g. data:application/pdf;base64,...)
+      const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
+      const buffer = Buffer.from(cleanBase64, 'base64');
+
+      if (buffer.length === 0) {
+        return res.status(400).json({ error: "Uploaded file is empty" });
+      }
+
+      if (buffer.length > 10 * 1024 * 1024) {
+        return res.status(400).json({ error: "File exceeds 10MB size limit" });
+      }
+
+      const safeFilename = typeof filename === 'string' ? filename : 'uploaded_cv';
+      const ext = safeFilename.toLowerCase().split('.').pop() || '';
+      let extractedText = '';
+      let parseMethod = 'unknown';
+
+      // 1. Determine format and parse
+      if (ext === 'pdf' || mimeType === 'application/pdf') {
+        try {
+          extractedText = await extractPdfText(buffer);
+          parseMethod = 'pdf';
+        } catch (pdfErr) {
+          console.warn('PDF parsing error, attempting text fallback:', pdfErr);
+        }
+      } else if (ext === 'docx' || mimeType?.includes('wordprocessingml') || mimeType?.includes('msword')) {
+        try {
+          extractedText = await extractDocxText(buffer);
+          parseMethod = 'docx';
+        } catch (docxErr) {
+          console.warn('DOCX parsing error, attempting text fallback:', docxErr);
+        }
+      } else if (ext === 'txt' || ext === 'md' || ext === 'rtf' || mimeType?.startsWith('text/')) {
+        extractedText = buffer.toString('utf-8').trim();
+        parseMethod = 'text';
+      }
+
+      // 2. Resilience fallbacks if format was not recognized or initial method failed
+      if (!extractedText) {
+        // Try PDF
+        try {
+          extractedText = await extractPdfText(buffer);
+          if (extractedText) parseMethod = 'pdf';
+        } catch {}
+      }
+
+      if (!extractedText) {
+        // Try DOCX
+        try {
+          extractedText = await extractDocxText(buffer);
+          if (extractedText) parseMethod = 'docx';
+        } catch {}
+      }
+
+      if (!extractedText) {
+        // Try UTF-8 string
+        const utf8 = buffer.toString('utf-8').trim();
+        // Basic check if it looks like printable text
+        if (utf8 && !/[\x00-\x08\x0E-\x1F]/.test(utf8.slice(0, 200))) {
+          extractedText = utf8;
+          parseMethod = 'text';
+        }
+      }
+
+      if (!extractedText || extractedText.trim().length === 0) {
+        return res.status(422).json({
+          error: "No readable text could be extracted from this document. If your file is a scanned image, please copy and paste your CV text directly."
+        });
+      }
+
+      const wordCount = extractedText.split(/\s+/).filter(Boolean).length;
+      const characterCount = extractedText.length;
+
+      let extractedProfile: any = null;
+      if (autoExtract === true) {
+        const prompt = `You are an expert technical recruiter. Parse the provided CV text into a structured JSON profile.
+Extract the following fields accurately. If a field is not present, omit it or leave it empty.
+Schema:
+{
+  "summary": "string",
+  "totalExperience": number,
+  "currentRole": "string",
+  "skills": ["array of strings"],
+  "tools": ["array of strings"],
+  "industries": ["array of strings"],
+  "education": ["array of strings"],
+  "certifications": ["array of strings"],
+  "achievements": ["array of strings"],
+  "preferredLocations": ["array of strings"],
+  "workMode": "string",
+  "expectedSalary": "string"
+}
+
+CV Text:
+${extractedText}`;
+
+        if (isGeminiAvailable()) {
+          try {
+            const raw = await generateWithGeminiCascade({
+              prompt,
+              responseMimeType: "application/json",
+              temperature: 0.1
+            });
+            extractedProfile = parseGeminiJson(raw, null);
+          } catch (e) {
+            console.warn("Auto-extract profile failed during CV upload:", e);
+          }
+        }
+      }
+
+      res.json({
+        ok: true,
+        text: extractedText,
+        filename: safeFilename,
+        fileSize: buffer.length,
+        parseMethod,
+        wordCount,
+        characterCount,
+        extractedProfile
+      });
+    } catch (error: any) {
+      console.error('CV upload error:', error);
+      res.status(500).json({ error: error?.message || "Internal server error while processing CV upload" });
+    }
+  });
+
   // Extract structured profile
   app.post("/api/extract-profile", requireAuth, rateLimit, async (req, res) => {
     try {
@@ -107,18 +267,13 @@ CV Text:
 ${baseCv}`;
 
       let parsed: any = {};
-      if (ai) {
-        const response = await ai.models.generateContent({
-          model: "gemini-2.5-flash",
-          contents: prompt,
-          config: { responseMimeType: "application/json", temperature: 0.1 }
+      if (isGeminiAvailable()) {
+        const raw = await generateWithGeminiCascade({
+          prompt,
+          responseMimeType: "application/json",
+          temperature: 0.1
         });
-        try {
-          parsed = JSON.parse(response.text || "{}");
-        } catch (e) {
-          console.error("Failed to parse Gemini response for profile extraction", e);
-          return res.status(500).json({ error: "Failed to parse structured profile from AI response" });
-        }
+        parsed = parseGeminiJson(raw, null);
 
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
           return res.status(500).json({ error: "Invalid profile structure returned by AI" });
@@ -130,9 +285,9 @@ ${baseCv}`;
         };
       }
       res.json(parsed);
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({ error: "Internal server error" });
+    } catch (error: any) {
+      console.error('Extract profile error:', error);
+      res.status(500).json({ error: error?.message || "Failed to extract profile from CV" });
     }
   });
 
@@ -154,9 +309,9 @@ ${baseCv}`;
       }
 
       res.json(analysis);
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({ error: "Analysis failed" });
+    } catch (error: any) {
+      console.error('Analyze job error:', error);
+      res.status(500).json({ error: error?.message || "Analysis failed" });
     }
   });
 
@@ -204,22 +359,13 @@ Return a JSON object with this schema:
 }`;
 
       let parsed: any = {};
-      if (ai) {
-        const response = await ai.models.generateContent({
-          model: "gemini-2.5-flash",
-          contents: prompt,
-          config: {
-            responseMimeType: "application/json",
-            temperature: 0.3
-          }
+      if (isGeminiAvailable()) {
+        const raw = await generateWithGeminiCascade({
+          prompt,
+          responseMimeType: "application/json",
+          temperature: 0.3
         });
-        try {
-          const text = response.text || "{}";
-          parsed = JSON.parse(text);
-        } catch (e) {
-          console.error("Failed to parse Gemini response for tailor-application", e);
-          return res.status(500).json({ error: "Failed to parse tailored output from AI response" });
-        }
+        parsed = parseGeminiJson(raw, null);
 
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
           return res.status(500).json({ error: "Invalid tailored application structure returned by AI" });
@@ -237,9 +383,9 @@ Return a JSON object with this schema:
       }
 
       res.json(parsed);
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({ error: "Internal server error" });
+    } catch (error: any) {
+      console.error('Tailor application error:', error);
+      res.status(500).json({ error: error?.message || "Failed to tailor application" });
     }
   });
 
@@ -263,19 +409,18 @@ My Base CV:
 ${baseCv}
 
 Write a professional, compelling, and truthful cover letter in Markdown format. Return ONLY the markdown text, no JSON.`;
-      if (ai) {
-        const response = await ai.models.generateContent({
-          model: "gemini-2.5-flash",
-          contents: prompt,
-          config: { temperature: 0.3 }
+      if (isGeminiAvailable()) {
+        const text = await generateWithGeminiCascade({
+          prompt,
+          temperature: 0.3
         });
-        res.send(response.text || "");
+        res.send(text || "");
       } else {
         res.send("[Demo Mode] Mock cover letter for " + company);
       }
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({ error: "Internal server error" });
+    } catch (error: any) {
+      console.error('Generate cover letter error:', error);
+      res.status(500).json({ error: error?.message || "Failed to generate cover letter" });
     }
   });
 
@@ -310,18 +455,13 @@ Return a JSON object where keys are standard question identifiers and values are
   "locationPreference": "string (Infer or placeholder)"
 }`;
       let parsed: any = {};
-      if (ai) {
-        const response = await ai.models.generateContent({
-          model: "gemini-2.5-flash",
-          contents: prompt,
-          config: { responseMimeType: "application/json", temperature: 0.2 }
+      if (isGeminiAvailable()) {
+        const raw = await generateWithGeminiCascade({
+          prompt,
+          responseMimeType: "application/json",
+          temperature: 0.2
         });
-        try {
-          parsed = JSON.parse(response.text || "{}");
-        } catch (e) {
-          console.error("Failed to parse Gemini response for answers", e);
-          return res.status(500).json({ error: "Failed to parse structured answers from AI response" });
-        }
+        parsed = parseGeminiJson(raw, null);
 
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
           return res.status(500).json({ error: "Invalid answers structure returned by AI" });
@@ -333,10 +473,30 @@ Return a JSON object where keys are standard question identifiers and values are
         };
       }
       res.json(parsed);
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({ error: "Internal server error" });
+    } catch (error: any) {
+      console.error('Generate answers error:', error);
+      res.status(500).json({ error: error?.message || "Failed to generate answers" });
     }
+  });
+
+  // Expose demo auth config for client authentication when ALLOW_DEMO_AUTH=true
+  app.get("/api/auth/demo-token", (req, res) => {
+    if (isDemoAuthAllowed()) {
+      res.json({ token: getDemoAuthToken(), allowed: true });
+    } else {
+      res.status(403).json({ error: "Demo authentication is disabled", allowed: false });
+    }
+  });
+
+  // 404 handler for all unmatched API routes - guarantees JSON response instead of HTML SPA fallback
+  app.all('/api/*', (req, res) => {
+    res.status(404).json({ error: `API route not found: ${req.method} ${req.path}` });
+  });
+
+  // Global error handler for API routes - guarantees JSON response
+  app.use('/api', (err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error('API Error:', err);
+    res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
   });
 
   return app;
@@ -366,6 +526,6 @@ export async function startServer() {
   });
 }
 
-if (process.env.NODE_ENV !== 'test') {
+if (process.env.NODE_ENV !== 'test' && !process.env.VITEST) {
   startServer();
 }

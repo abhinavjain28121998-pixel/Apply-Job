@@ -1,20 +1,41 @@
-import React, { useEffect, useState } from 'react';
-
+import React, { useEffect, useState, useRef } from 'react';
 
 import { useAuth } from '../AuthContext';
-import { Save, AlertCircle, Upload, FileText, BrainCircuit, Database, Server, RefreshCw, Clock } from 'lucide-react';
+import { 
+  Save, 
+  AlertCircle, 
+  Upload, 
+  FileText, 
+  BrainCircuit, 
+  Database, 
+  Server, 
+  RefreshCw, 
+  Clock,
+  CheckCircle2,
+  FileUp,
+  X,
+  Sparkles,
+  Loader2,
+  Trash2
+} from 'lucide-react';
 import { UserProfile, ProviderStatus } from '../types';
 import { resumeService } from '../services/resumeService';
+import { safeFetchJson } from '../lib/api';
 
 export default function ProfileSettings() {
   const { user, getToken } = useAuth();
   const [profile, setProfile] = useState<Partial<UserProfile>>({ baseCvText: '' });
   const [saving, setSaving] = useState(false);
   const [extracting, setExtracting] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState('');
+  const [isDragging, setIsDragging] = useState(false);
   const [message, setMessage] = useState('');
   const [activeTab, setActiveTab] = useState<'RAW' | 'STRUCTURED' | 'PROVIDER'>('RAW');
   const [providerStatus, setProviderStatus] = useState<ProviderStatus | null>(null);
   const [testingProvider, setTestingProvider] = useState(false);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -29,12 +50,12 @@ export default function ProfileSettings() {
 
   const checkProviderStatus = async () => {
     try {
-      const res = await fetch('/api/provider/status');
-      if (res.ok) {
-        setProviderStatus(await res.json());
+      const result = await safeFetchJson('/api/provider/status');
+      if (result.ok && result.data) {
+        setProviderStatus(result.data);
       }
     } catch (e) {
-      console.error(e);
+      console.warn('Could not check provider status:', e);
     }
   };
 
@@ -64,21 +85,190 @@ export default function ProfileSettings() {
     setExtracting(true);
     try {
       const token = await getToken();
-      const res = await fetch('/api/extract-profile', {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      const result = await safeFetchJson('/api/extract-profile', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        headers,
         body: JSON.stringify({ baseCv: profile.baseCvText })
       });
-      const data = await res.json();
-      setProfile(prev => ({ ...prev, ...data }));
+      if (!result.ok || !result.data) {
+        throw new Error(result.error || 'Failed to extract profile.');
+      }
+      setProfile(prev => ({ ...prev, ...result.data }));
       setActiveTab('STRUCTURED');
       setMessage('Profile extracted successfully! Please review and save.');
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      setMessage('Failed to extract profile.');
+      setMessage(error?.message || 'Failed to extract profile.');
     } finally {
       setExtracting(false);
     }
+  };
+
+  const formatBytes = (bytes?: number) => {
+    if (!bytes) return '';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const processFile = async (file: File) => {
+    if (!file) return;
+
+    const validExtensions = ['pdf', 'docx', 'doc', 'txt', 'md', 'rtf'];
+    const ext = file.name.split('.').pop()?.toLowerCase() || '';
+
+    if (!validExtensions.includes(ext) && !file.type.includes('pdf') && !file.type.includes('text') && !file.type.includes('word')) {
+      setMessage('Unsupported file format. Please upload a PDF (.pdf), Word document (.docx), or plain text file (.txt, .md).');
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      setMessage('File size exceeds 10MB limit. Please upload a smaller document or paste text directly.');
+      return;
+    }
+
+    setUploading(true);
+    setUploadProgress(`Reading ${file.name}...`);
+    setMessage('');
+
+    try {
+      // 1. Read file as Base64 for the server parser
+      const reader = new FileReader();
+      const readPromise = new Promise<string>((resolve, reject) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(new Error('Failed to read file from disk.'));
+        reader.readAsDataURL(file);
+      });
+
+      setUploadProgress(`Uploading and parsing ${ext.toUpperCase() || 'document'}...`);
+      const base64Data = await readPromise;
+
+      const token = await getToken();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      setUploadProgress('Extracting document text...');
+      const result = await safeFetchJson<{
+        ok: boolean;
+        text: string;
+        filename: string;
+        wordCount: number;
+        characterCount: number;
+      }>('/api/upload-cv', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          filename: file.name,
+          mimeType: file.type,
+          base64Data
+        })
+      });
+
+      if (!result.ok || !result.data?.text) {
+        // Fallback for plain text if network or server issue
+        if (ext === 'txt' || ext === 'md' || file.type.startsWith('text/')) {
+          const textContent = await file.text();
+          if (textContent && textContent.trim()) {
+            const words = textContent.split(/\s+/).filter(Boolean).length;
+            setProfile(prev => ({
+              ...prev,
+              baseCvText: textContent,
+              uploadedFileName: file.name,
+              uploadedFileSize: file.size,
+              uploadedFileDate: new Date().toISOString()
+            }));
+            setMessage(`Loaded "${file.name}" (${words.toLocaleString()} words).`);
+            return;
+          }
+        }
+        throw new Error(result.error || 'Failed to extract text from document.');
+      }
+
+      const extractedText = result.data.text;
+      const wordCount = result.data.wordCount;
+
+      setProfile(prev => ({
+        ...prev,
+        baseCvText: extractedText,
+        uploadedFileName: file.name,
+        uploadedFileSize: file.size,
+        uploadedFileDate: new Date().toISOString()
+      }));
+
+      setMessage(`Successfully imported "${file.name}" (${wordCount.toLocaleString()} words extracted). You can review below or click Auto-Extract Profile.`);
+    } catch (err: any) {
+      console.error('File upload error:', err);
+      // Fallback for text files
+      if (ext === 'txt' || ext === 'md' || file.type.startsWith('text/')) {
+        try {
+          const textContent = await file.text();
+          if (textContent && textContent.trim()) {
+            const words = textContent.split(/\s+/).filter(Boolean).length;
+            setProfile(prev => ({
+              ...prev,
+              baseCvText: textContent,
+              uploadedFileName: file.name,
+              uploadedFileSize: file.size,
+              uploadedFileDate: new Date().toISOString()
+            }));
+            setMessage(`Loaded text from "${file.name}" (${words.toLocaleString()} words).`);
+            return;
+          }
+        } catch {}
+      }
+      setMessage(err?.message || 'Failed to process and extract text from the uploaded CV.');
+    } finally {
+      setUploading(false);
+      setUploadProgress('');
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      processFile(e.target.files[0]);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isDragging) setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      processFile(e.dataTransfer.files[0]);
+    }
+  };
+
+  const handleClearCv = () => {
+    setProfile(prev => ({
+      ...prev,
+      baseCvText: '',
+      uploadedFileName: undefined,
+      uploadedFileSize: undefined,
+      uploadedFileDate: undefined
+    }));
+    setMessage('Cleared CV text.');
   };
 
   const loadSampleData = () => {
@@ -100,13 +290,26 @@ export default function ProfileSettings() {
     setActiveTab('STRUCTURED');
   };
 
+  const currentWordCount = (profile.baseCvText || '').trim().split(/\s+/).filter(Boolean).length;
+  const currentCharCount = (profile.baseCvText || '').length;
+
   return (
     <div className="p-8 max-w-5xl mx-auto flex flex-col h-screen overflow-hidden">
+      {/* Hidden native file input */}
+      <input 
+        ref={fileInputRef}
+        type="file"
+        id="cv-file-input"
+        accept=".pdf,.docx,.doc,.txt,.md,.rtf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown"
+        onChange={handleFileChange}
+        className="hidden"
+      />
+
       <div className="mb-6 shrink-0 flex justify-between items-end">
         <div>
           <h1 className="text-3xl font-bold text-slate-800 mb-2">Settings</h1>
           <p className="text-slate-600">
-            Manage your CV profile and application integrations.
+            Manage your CV profile, upload resumes, and configure job data providers.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -146,36 +349,184 @@ export default function ProfileSettings() {
       </div>
 
       {message && (
-        <div className={`mb-6 p-4 rounded-lg shrink-0 text-sm font-medium ${message.includes('success') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-          {message}
+        <div className={`mb-6 p-4 rounded-lg shrink-0 text-sm font-medium flex items-center justify-between ${message.includes('success') || message.includes('Loaded') || message.includes('Successfully') ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+          <div className="flex items-center gap-2">
+            {message.includes('success') || message.includes('Loaded') || message.includes('Successfully') ? (
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+            ) : (
+              <AlertCircle className="w-4 h-4 shrink-0" />
+            )}
+            <span>{message}</span>
+          </div>
+          <button onClick={() => setMessage('')} className="text-slate-400 hover:text-slate-600">
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
       <div className="flex-1 overflow-y-auto">
         {activeTab === 'RAW' && (
-          <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden flex flex-col min-h-[400px]">
-            <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
-              <div className="flex items-center gap-4">
-                <button className="flex items-center gap-2 bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors">
-                  <Upload className="w-4 h-4" /> Upload PDF / DOCX
-                </button>
-                <span className="text-xs text-slate-400">or paste text below</span>
+          <div 
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            className={`relative bg-white border rounded-xl shadow-sm overflow-hidden flex flex-col min-h-[500px] transition-all ${
+              isDragging ? 'border-indigo-500 ring-2 ring-indigo-500 bg-indigo-50/20' : 'border-slate-200'
+            }`}
+          >
+            {/* Drag overlay state */}
+            {isDragging && (
+              <div className="absolute inset-0 bg-indigo-50/90 backdrop-blur-xs z-20 flex flex-col items-center justify-center border-2 border-dashed border-indigo-500 rounded-xl p-8 pointer-events-none">
+                <FileUp className="w-16 h-16 text-indigo-600 mb-3 animate-bounce" />
+                <h3 className="text-xl font-bold text-indigo-900 mb-1">Drop your CV here</h3>
+                <p className="text-sm text-indigo-700">Supported formats: PDF, DOCX, TXT, MD (up to 10MB)</p>
               </div>
-              <button
-                onClick={handleExtract}
-                disabled={extracting || !profile.baseCvText}
-                className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-800 disabled:opacity-50 transition-colors"
-              >
-                <BrainCircuit className="w-4 h-4" />
-                {extracting ? 'Extracting...' : 'Auto-Extract Profile'}
-              </button>
+            )}
+
+            {/* Upload Toolbar Header */}
+            <div className="p-4 border-b border-slate-200 bg-slate-50 flex flex-wrap gap-4 justify-between items-center">
+              <div className="flex items-center gap-3 flex-wrap">
+                <button 
+                  id="upload-cv-button"
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 shadow-xs cursor-pointer"
+                >
+                  {uploading ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Upload className="w-4 h-4" />
+                  )}
+                  <span>{uploading ? 'Processing File...' : 'Upload CV / Resume'}</span>
+                </button>
+
+                {profile.uploadedFileName && (
+                  <div className="flex items-center gap-2 bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-700">
+                    <FileText className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                    <span className="truncate max-w-[180px]" title={profile.uploadedFileName}>
+                      {profile.uploadedFileName}
+                    </span>
+                    {profile.uploadedFileSize ? (
+                      <span className="text-slate-400">({formatBytes(profile.uploadedFileSize)})</span>
+                    ) : null}
+                    <button 
+                      type="button" 
+                      onClick={handleClearCv}
+                      title="Clear uploaded CV" 
+                      className="text-slate-400 hover:text-red-600 ml-1 transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+
+                <span className="text-xs text-slate-400 hidden sm:inline">
+                  Drag & drop PDF, DOCX, or TXT (or paste text below)
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {profile.baseCvText && (
+                  <button
+                    type="button"
+                    onClick={handleClearCv}
+                    className="text-xs text-slate-500 hover:text-red-600 px-2.5 py-1.5 rounded-md hover:bg-slate-100 transition-colors"
+                  >
+                    Clear Text
+                  </button>
+                )}
+                <button
+                  id="auto-extract-profile-button"
+                  type="button"
+                  onClick={handleExtract}
+                  disabled={extracting || !profile.baseCvText || uploading}
+                  className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-800 disabled:opacity-50 transition-colors shadow-xs"
+                >
+                  {extracting ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-4 h-4 text-amber-400" />
+                  )}
+                  {extracting ? 'Extracting with AI...' : 'Auto-Extract Profile'}
+                </button>
+              </div>
             </div>
-            <textarea
-              value={profile.baseCvText || ''}
-              onChange={(e) => setProfile({ ...profile, baseCvText: e.target.value })}
-              placeholder="Paste your full CV text here..."
-              className="w-full flex-1 p-6 text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none font-mono text-sm leading-relaxed min-h-[500px]"
-            />
+
+            {/* Uploading progress notification */}
+            {uploading && (
+              <div className="bg-indigo-50 border-b border-indigo-100 px-6 py-3 flex items-center gap-3 text-sm text-indigo-800 animate-pulse">
+                <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+                <span>{uploadProgress || 'Extracting CV text from uploaded document...'}</span>
+              </div>
+            )}
+
+            {/* Empty state drag & drop zone banner if no CV text */}
+            {!profile.baseCvText && !uploading && (
+              <div 
+                onClick={() => fileInputRef.current?.click()}
+                className="m-6 p-8 border-2 border-dashed border-slate-300 hover:border-indigo-500 rounded-xl bg-slate-50/50 hover:bg-indigo-50/20 flex flex-col items-center justify-center text-center cursor-pointer transition-colors group"
+              >
+                <div className="w-14 h-14 rounded-full bg-indigo-100 group-hover:bg-indigo-200 text-indigo-600 flex items-center justify-center mb-4 transition-colors">
+                  <Upload className="w-7 h-7" />
+                </div>
+                <h4 className="text-base font-semibold text-slate-800 mb-1">
+                  Upload your CV to get started
+                </h4>
+                <p className="text-sm text-slate-500 max-w-md mb-4">
+                  Drag and drop your file here, or click to browse. We automatically extract and parse your experience, skills, and qualifications.
+                </p>
+                <div className="flex items-center gap-2 flex-wrap justify-center">
+                  <span className="px-2.5 py-1 bg-white border border-slate-200 rounded-md text-xs font-medium text-slate-600">
+                    PDF (.pdf)
+                  </span>
+                  <span className="px-2.5 py-1 bg-white border border-slate-200 rounded-md text-xs font-medium text-slate-600">
+                    Word (.docx)
+                  </span>
+                  <span className="px-2.5 py-1 bg-white border border-slate-200 rounded-md text-xs font-medium text-slate-600">
+                    Text (.txt, .md)
+                  </span>
+                  <span className="text-xs text-slate-400">Up to 10MB</span>
+                </div>
+              </div>
+            )}
+
+            {/* Editor Textarea */}
+            <div className="flex-1 flex flex-col min-h-[350px]">
+              <textarea
+                id="raw-cv-textarea"
+                value={profile.baseCvText || ''}
+                onChange={(e) => setProfile({ ...profile, baseCvText: e.target.value })}
+                placeholder="Or paste your raw CV text here directly..."
+                className="w-full flex-1 p-6 text-slate-800 placeholder:text-slate-400 focus:outline-none resize-none font-mono text-sm leading-relaxed min-h-[350px]"
+              />
+
+              {/* Status and count footer */}
+              <div className="px-6 py-2.5 bg-slate-50 border-t border-slate-200 flex justify-between items-center text-xs text-slate-500">
+                <div className="flex items-center gap-3">
+                  <span>{currentCharCount.toLocaleString()} characters</span>
+                  <span>•</span>
+                  <span>{currentWordCount.toLocaleString()} words</span>
+                  {profile.uploadedFileName && (
+                    <>
+                      <span>•</span>
+                      <span className="text-indigo-600 font-medium truncate max-w-[200px]">
+                        Imported from {profile.uploadedFileName}
+                      </span>
+                    </>
+                  )}
+                </div>
+                <div>
+                  {currentWordCount > 0 ? (
+                    <span className="text-green-600 font-medium flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> CV Ready for Analysis
+                    </span>
+                  ) : (
+                    <span className="text-slate-400">Waiting for CV input</span>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
@@ -304,3 +655,4 @@ export default function ProfileSettings() {
     </div>
   );
 }
+

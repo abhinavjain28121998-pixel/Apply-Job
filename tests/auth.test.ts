@@ -264,4 +264,25 @@ describe('Server Authentication & Hardened Security Tests', () => {
     process.env.FIREBASE_SERVICE_ACCOUNT_KEY = JSON.stringify({ project_id: 'sa-project-id' });
     expect(resolveFirebaseProjectId()).toBe('sa-project-id');
   });
+
+  it('createApiApp returns JSON 404 on unmatched /api routes', async () => {
+    const http = await import('http');
+    const { createApiApp } = await import('../server.js');
+    const app = createApiApp();
+
+    const server = http.createServer(app);
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address() as any;
+    const port = address.port;
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/api/unmatched-nonexistent-route`);
+      expect(response.status).toBe(404);
+      expect(response.headers.get('content-type')).toContain('application/json');
+      const data = await response.json();
+      expect(data?.error).toContain('API route not found');
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
 });

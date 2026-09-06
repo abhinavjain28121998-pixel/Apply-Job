@@ -7,6 +7,7 @@ import { resumeService } from '../services/resumeService';
 import { Search, MapPin, Briefcase, IndianRupee, Loader2, Star, CheckCircle2, Clock, Filter, AlertTriangle, Building, Save, Info } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import JobDetailModal from './JobDetailModal';
+import { safeFetchJson } from '../lib/api';
 
 export default function FindJobs() {
   const { user, getToken } = useAuth();
@@ -42,10 +43,15 @@ export default function FindJobs() {
   }, [user]);
 
   useEffect(() => {
-    fetch('/api/provider/status')
-      .then(res => res.json())
-      .then(data => setProviderStatus(data))
-      .catch(console.error);
+    safeFetchJson('/api/provider/status')
+      .then(result => {
+        if (result.ok && result.data) {
+          setProviderStatus(result.data);
+        }
+      })
+      .catch(err => {
+        console.warn('Failed to fetch provider status:', err);
+      });
   }, []);
 
   const saveJob = async (job: Job) => {
@@ -81,17 +87,17 @@ export default function FindJobs() {
     const targetPage = loadMore ? page + 1 : 1;
         
     try {
-      const res = await fetch('/api/jobs/search', {
+      const result = await safeFetchJson('/api/jobs/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...filters, page: targetPage, limit: 10 })
       });
       
-      if (!res.ok) {
-        throw new Error(`Search failed with status ${res.status}`);
+      if (!result.ok || !result.data) {
+        throw new Error(result.error || `Search failed with status ${result.status}`);
       }
 
-      const data = await res.json();
+      const data = result.data;
       setProviderStatus(data.status);
       setHasMore(Boolean(data.hasMore));
       setPage(targetPage);
@@ -116,17 +122,21 @@ export default function FindJobs() {
     try {
       const profile = await resumeService.getProfile(user.uid);
       const token = await getToken();
-      const res = await fetch('/api/analyze-job', {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      const result = await safeFetchJson('/api/analyze-job', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        headers,
         body: JSON.stringify({
           jobDescription: job.description,
           baseCv: profile?.baseCvText || ''
         })
       });
       
-      if (res.ok) {
-        const analysis = await res.json();
+      if (result.ok && result.data) {
+        const analysis = result.data;
         
         // Save the match
         const matchToSave = { ...analysis, jobId: job.id, userId: user.uid };
