@@ -75,7 +75,15 @@ export default function ApplicationWorkspace() {
     if (!id || !user) return;
         
     try {
-      const updatedApp = await applicationService.createOrUpdateApplication(user.uid, id, updates);
+      const finalUpdates = {
+        ...updates,
+        ...(match ? {
+          matchScore: match.matchScore,
+          resumeVersion: match.resumeVersion,
+          datePrepared: match.analyzedAt || Date.now()
+        } : {})
+      };
+      const updatedApp = await applicationService.createOrUpdateApplication(user.uid, id, finalUpdates);
       setApp(updatedApp);
     } catch (e) {
       console.error(e);

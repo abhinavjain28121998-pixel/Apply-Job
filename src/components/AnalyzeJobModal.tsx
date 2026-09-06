@@ -59,7 +59,7 @@ export default function AnalyzeJobModal({ onClose, onJobAdded }: { onClose: () =
       
       // Save the match
       const { jobMatchService } = await import('../services/jobMatchService');
-      const newMatch = { ...analysis, jobId: newJobId, userId: user.uid };
+      const newMatch = { ...analysis, jobId: newJobId, userId: user.uid, resumeVersion: profile.version || 'v1' };
       await jobMatchService.saveMatch(newMatch);
 
       onJobAdded();

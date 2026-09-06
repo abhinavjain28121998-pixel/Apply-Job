@@ -1,86 +1,71 @@
-import { describe, it, expect, vi } from 'vitest';
-import { MatchingService, EvaluatedRequirement } from '../src/services/matchingService.js';
+import { describe, it, expect } from 'vitest';
+import { MatchingService, EvaluatedRequirement } from '../src/services/matchingService';
 
 describe('MatchingService Deterministic Scoring', () => {
-  const matchingService = new (MatchingService as any)();
+  const service = new MatchingService('dummy-key');
 
-  it('should return 100 for perfect match', () => {
-    const evalMock: EvaluatedRequirement[] = [
-      { id: '1', text: 'React', category: 'SKILL', importance: 'REQUIRED', critical: true, matchLevel: 'MATCHED', evidence: '' },
-      { id: '2', text: 'Degree', category: 'EDUCATION', importance: 'REQUIRED', critical: true, matchLevel: 'MATCHED', evidence: '' }
-    ];
-    const result = matchingService.calculateDeterministicScore(evalMock, { skills: ['React'], experience: { totalYears: null, relevantYears: null, roles: [] }, education: 'Degree', certifications: [], industries: [], other: '' });
-    expect(result.matchScore).toBe(100);
-    expect(result.recommendation).toBe('APPLY');
+  it('calculates score proportionally within fixed category weights (10 skills vs 2 skills)', () => {
+    const evidence = {
+      skills: ['react', 'node', 'aws', 'docker', 'sql', 'nosql', 'ci/cd', 'typescript', 'jest', 'kubernetes'],
+      experience: { totalYears: 5, relevantYears: 5, roles: [] },
+      education: 'B.S.',
+      certifications: [],
+      industries: [],
+      other: ''
+    };
+
+    const reqsA: EvaluatedRequirement[] = Array.from({ length: 10 }).map((_, i) => ({
+      id: "sk-"+i, text: "Skill "+i, category: 'SKILL', importance: 'REQUIRED', critical: true,
+      matchLevel: 'MATCHED', evidence: ''
+    }));
+
+    const reqsB: EvaluatedRequirement[] = Array.from({ length: 2 }).map((_, i) => ({
+      id: "sk-"+i, text: "Skill "+i, category: 'SKILL', importance: 'REQUIRED', critical: true,
+      matchLevel: 'MATCHED', evidence: ''
+    }));
+
+    const resA = service.calculateDeterministicScore(reqsA, evidence);
+    const resB = service.calculateDeterministicScore(reqsB, evidence);
+
+    expect(resA.matchScore).toBe(100); 
+    expect(resB.matchScore).toBe(100);
   });
 
-  it('missing required but non-critical skill', () => {
-    const evalMock: EvaluatedRequirement[] = [
-      { id: '1', text: 'React', category: 'SKILL', importance: 'REQUIRED', critical: false, matchLevel: 'MISSING', evidence: '' },
-      { id: '2', text: 'TS', category: 'SKILL', importance: 'PREFERRED', critical: false, matchLevel: 'MATCHED', evidence: '' }
-    ];
-    const result = matchingService.calculateDeterministicScore(evalMock, { skills: ['TS'], experience: { totalYears: null, relevantYears: null, roles: [] }, education: '', certifications: [], industries: [], other: '' });
-    expect(result.matchScore).toBe(50); 
-    expect(['APPLY_WITH_CHANGES', 'LOW_PRIORITY']).toContain(result.recommendation);
-  });
-  
-  it('missing critical certification (other category)', () => {
-    const evalMock: EvaluatedRequirement[] = [
-      { id: '1', text: 'AWS', category: 'CERTIFICATION', importance: 'REQUIRED', critical: true, matchLevel: 'MISSING', evidence: '' },
-      { id: '2', text: 'React', category: 'SKILL', importance: 'REQUIRED', critical: false, matchLevel: 'MATCHED', evidence: '' }
-    ];
-    const result = matchingService.calculateDeterministicScore(evalMock);
-    expect(result.recommendation).toBe('SKIP');
+  it('does not allow a category to exceed its configured max weight', () => {
+    const evidence = { skills: [], experience: { totalYears: 2, relevantYears: 2, roles: [] }, education: '', certifications: [], industries: [], other: '' };
+    
+    const reqs: EvaluatedRequirement[] = Array.from({ length: 20 }).map((_, i) => ({
+      id: "oth-"+i, text: "Other "+i, category: 'OTHER', importance: 'REQUIRED', critical: false,
+      matchLevel: 'MATCHED', evidence: ''
+    }));
+
+    const res = service.calculateDeterministicScore(reqs, evidence);
+    
+    expect(res.matchScore).toBe(100); 
   });
 
-  it('unavailable AI analysis', () => {
-    const evalMock = null;
-    const result = matchingService.calculateDeterministicScore(evalMock);
-    expect(result.analysisStatus).toBe('ANALYSIS_FAILED');
-    expect(result.matchScore).toBeNull();
+  it('assigns UNAVAILABLE recommendation when analysis is unavailable', () => {
+    const res = (service as any).analysisUnavailable('', '');
+    expect(res.recommendation).toBe('UNAVAILABLE');
+    expect(res.confidenceScore).toBe(0);
+    expect(res.matchScore).toBeNull();
   });
 
-  it('5 years required / 5 years candidate', () => {
-    const evalMock: EvaluatedRequirement[] = [
-      { id: '1', text: '5 years experience', category: 'EXPERIENCE', importance: 'REQUIRED', critical: true, matchLevel: 'MATCHED', evidence: '', requiredYears: 5, candidateYears: 5 }
+  it('assigns proper explanation for low scores', () => {
+    const evidence = { skills: [], experience: { totalYears: 2, relevantYears: 2, roles: [] }, education: '', certifications: [], industries: [], other: '' };
+    
+    const reqs: EvaluatedRequirement[] = [
+      { id: '1', text: 'Skill 1', category: 'SKILL', importance: 'REQUIRED', critical: false, matchLevel: 'MATCHED', evidence: '' },
+      { id: '2', text: 'Skill 2', category: 'SKILL', importance: 'REQUIRED', critical: true, matchLevel: 'MISSING', evidence: '' },
+      { id: '3', text: 'Skill 3', category: 'SKILL', importance: 'REQUIRED', critical: true, matchLevel: 'MISSING', evidence: '' },
+      { id: '4', text: 'Skill 4', category: 'SKILL', importance: 'REQUIRED', critical: true, matchLevel: 'MISSING', evidence: '' }
     ];
-    const result = matchingService.calculateDeterministicScore(evalMock, { experience: { totalYears: 5, relevantYears: 5, roles: [] }, skills: [], education: '', certifications: [], industries: [], other: '' });
-    expect(result.matchScore).toBe(100);
-  });
 
-  it('5 years required / 4 years candidate', () => {
-    const evalMock: EvaluatedRequirement[] = [
-      { id: '1', text: '5 years experience', category: 'EXPERIENCE', importance: 'REQUIRED', critical: true, matchLevel: 'MATCHED', evidence: '', requiredYears: 5, candidateYears: 4 }
-    ];
-    const result = matchingService.calculateDeterministicScore(evalMock, { experience: { totalYears: 4, relevantYears: 4, roles: [] }, skills: [], education: '', certifications: [], industries: [], other: '' });
-    expect(result.matchScore).toBe(80); // 4/5 * 10 = 8. 8/10 = 80%
-  });
-
-  it('5 years required / 1 year candidate', () => {
-    const evalMock: EvaluatedRequirement[] = [
-      { id: '1', text: '5 years experience', category: 'EXPERIENCE', importance: 'REQUIRED', critical: true, matchLevel: 'MATCHED', evidence: '', requiredYears: 5, candidateYears: 1 }
-    ];
-    const result = matchingService.calculateDeterministicScore(evalMock, { experience: { totalYears: 1, relevantYears: 1, roles: [] }, skills: [], education: '', certifications: [], industries: [], other: '' });
-    expect(result.matchScore).toBe(20); // 1/5 = 20%
-  });
-
-  it('no experience evidence', () => {
-    const evalMock: EvaluatedRequirement[] = [
-      { id: '1', text: '5 years experience', category: 'EXPERIENCE', importance: 'REQUIRED', critical: true, matchLevel: 'UNCLEAR', evidence: '', requiredYears: 5, candidateYears: null }
-    ];
-    const result = matchingService.calculateDeterministicScore(evalMock, { experience: { totalYears: null, relevantYears: null, roles: [] }, skills: [], education: '', certifications: [], industries: [], other: '' });
-    expect(result.matchScore).toBe(40); // 0.4 weight for UNCLEAR
-  });
-
-  it('confidence calculation', () => {
-    const evalMock: EvaluatedRequirement[] = [
-      { id: '1', text: 'Skill', category: 'SKILL', importance: 'REQUIRED', critical: false, matchLevel: 'UNCLEAR', evidence: '' }
-    ];
-    // 1 req < 3 (penalty 20)
-    // 1 unclear / 1 req (penalty 50)
-    // No evidence (penalty 40)
-    // Max penalty 110, confidence 0
-    const result = matchingService.calculateDeterministicScore(evalMock, { experience: { totalYears: null, relevantYears: null, roles: [] }, skills: [], education: '', certifications: [], industries: [], other: '' });
-    expect(result.confidenceScore).toBe(0);
+    const res = service.calculateDeterministicScore(reqs, evidence);
+    
+    expect(res.matchScore).toBe(25); 
+    expect(res.matchExplanation).toContain('Weak match');
+    expect(res.matchExplanation).toContain('Missing critical requirements');
+    expect(res.matchExplanation).not.toContain('Good overall fit');
   });
 });

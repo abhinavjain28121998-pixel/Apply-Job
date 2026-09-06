@@ -59,6 +59,15 @@ export const resumeService = {
   },
 
   updateProfile: async (userId: string, profile: Partial<UserProfile>): Promise<void> => {
+    // Generate version hash if baseCvText exists
+    if (profile.baseCvText) {
+      const cvText = profile.baseCvText;
+      let hash = 0;
+      for (let i = 0; i < cvText.length; i++) {
+        hash = Math.imul(31, hash) + cvText.charCodeAt(i) | 0;
+      }
+      profile.version = 'v' + cvText.length + '-' + Math.abs(hash);
+    }
     if (isFirebaseConfigured() && db) {
       await setDoc(doc(db, 'users', userId), {
         userId,

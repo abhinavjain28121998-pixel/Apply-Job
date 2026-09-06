@@ -15,8 +15,7 @@ export default function FindJobs() {
   const [filters, setFilters] = useState<SearchFilters>({ query: '', location: '', workMode: '' });
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState<Job[]>([]);
-  const [matchesMap, setMatchesMap] = useState<Map<string, any>>(new Map());
-  const [savedJobIds, setSavedJobIds] = useState<Set<string>>(new Set());
+    const [savedJobIds, setSavedJobIds] = useState<Set<string>>(new Set());
   const [analyzingIds, setAnalyzingIds] = useState<Set<string>>(new Set());
     const [sortBy, setSortBy] = useState<'MATCH' | 'RECENT' | 'SALARY'>('MATCH');
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
@@ -25,7 +24,7 @@ export default function FindJobs() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
 
-  const [matches, setMatches] = useState<Map<string, any>>(new Map());
+  const [matches, setMatches] = useState<Map<string, import("../types").JobMatch>>(new Map());
   useEffect(() => {
     if (!user) return;
     const fetchUserData = async () => {
@@ -37,7 +36,7 @@ export default function FindJobs() {
       const matches = await jobMatchService.getMatchesForUser(user.uid);
       const matchMap = new Map();
       matches.forEach(m => matchMap.set(m.jobId, m));
-      setMatchesMap(matchMap);
+      setMatches(matchMap);
     };
     fetchUserData();
   }, [user]);
@@ -296,12 +295,16 @@ export default function FindJobs() {
                     </div>
                   </div>
                   
-                  {match?.matchScore != null ? (
+                  {match ? (
                      <div className="flex flex-col items-end">
                        <div className="flex items-center gap-2">
-                         <div className={`text-2xl font-bold ${match?.matchScore >= 80 ? 'text-green-600' : match?.matchScore >= 50 ? 'text-amber-500' : 'text-red-500'}`}>
-                           {match?.matchScore}%
-                         </div>
+                         {match.matchScore != null ? (
+                           <div className={`text-2xl font-bold ${match.matchScore >= 80 ? 'text-green-600' : match.matchScore >= 50 ? 'text-amber-500' : 'text-red-500'}`}>
+                             {match.matchScore}%
+                           </div>
+                         ) : (
+                           <div className="text-sm font-medium text-slate-500">Analysis Unavailable</div>
+                         )}
                          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider text-right leading-tight">Match<br/>Score</div>
                        </div>
                      </div>

@@ -63,7 +63,7 @@ Each requirement must match this schema:
 {
   "id": "unique-string",
   "text": "the requirement text",
-  "category": "SKILL" | "EXPERIENCE" | "RESPONSIBILITY" | "EDUCATION" | "CERTIFICATION" | "LOCATION" | "OTHER",
+  "category": "SKILL" | "EXPERIENCE" | "SENIORITY" | "RESPONSIBILITY" | "INDUSTRY" | "EDUCATION" | "CERTIFICATION" | "LOCATION" | "OTHER",
   "importance": "REQUIRED" | "PREFERRED",
   "critical": boolean
 }
@@ -82,7 +82,7 @@ ${jobDescription}`;
       let parsed = JSON.parse(response.text || "[]");
       if (!Array.isArray(parsed)) parsed = parsed.requirements || [];
       
-      const validCategories = ['SKILL', 'EXPERIENCE', 'RESPONSIBILITY', 'EDUCATION', 'CERTIFICATION', 'LOCATION', 'OTHER'];
+      const validCategories = ['SKILL', 'EXPERIENCE', 'SENIORITY', 'RESPONSIBILITY', 'INDUSTRY', 'EDUCATION', 'CERTIFICATION', 'LOCATION', 'OTHER'];
       const validImportance = ['REQUIRED', 'PREFERRED'];
       
       reqs = parsed.filter((r: any) => {
@@ -226,7 +226,7 @@ Return a JSON array where each object matches:
       missingRequiredSkills: [],
       missingNiceToHaveSkills: [],
       concerns: ["Analysis unavailable"],
-      recommendation: 'LOW_PRIORITY',
+      recommendation: 'UNAVAILABLE' as any,
       details: {}
     };
   }
@@ -248,7 +248,7 @@ Return a JSON array where each object matches:
       missingRequiredSkills: [],
       missingNiceToHaveSkills: [],
       concerns: ["Analysis failed"],
-      recommendation: 'LOW_PRIORITY',
+      recommendation: 'UNAVAILABLE' as any,
       details: {}
     };
   }
@@ -375,12 +375,22 @@ Return a JSON array where each object matches:
       recommendation = 'APPLY_WITH_CHANGES';
     }
 
+    let explanation = `Match Score: ${score !== null ? score : 'N/A'}/100. `;
+    if (score !== null) {
+      if (score >= 90) explanation += 'Excellent match.';
+      else if (score >= 80) explanation += 'Strong match.';
+      else if (score >= 65) explanation += 'Good match.';
+      else if (score >= 50) explanation += 'Partial match.';
+      else explanation += 'Weak match.';
+    }
+    if (missingCritical.length > 0) explanation += ' Missing critical requirements.';
+
     return {
       analysisStatus,
       matchScore: score,
       confidenceScore,
       confidenceLevel,
-      matchExplanation: `Match Score: ${score !== null ? score : 'N/A'}/100. ${missingCritical.length > 0 ? 'Missing critical requirements.' : 'Good overall fit.'}`,
+      matchExplanation: explanation,
       skillsMatch: `${matchedSkills.length} matched, ${missingRequired.length} required missing.`,
       experienceMatch: "Check details",
       seniorityMatch: "Check details",

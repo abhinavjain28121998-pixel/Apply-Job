@@ -22,6 +22,7 @@ export interface WorkExperience {
 }
 
 export interface UserProfile {
+  version?: string;
   id: string;
   userId: string;
   baseCvText: string;
