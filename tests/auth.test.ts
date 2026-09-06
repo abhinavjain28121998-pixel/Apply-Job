@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { requireAuth } from '../server/auth.js';
 import { createRateLimiter } from '../server/rateLimit.js';
-import { _setFirebaseAuth, resolveFirebaseProjectId } from '../server/firebaseAdmin.js';
+import { _setFirebaseAuth, resolveFirebaseProjectId, resolveFirebaseDatabaseId } from '../server/firebaseAdmin.js';
 import { Request, Response } from 'express';
 
 function createMockResponse() {
@@ -263,6 +263,16 @@ describe('Server Authentication & Hardened Security Tests', () => {
     delete process.env.GCP_PROJECT;
     process.env.FIREBASE_SERVICE_ACCOUNT_KEY = JSON.stringify({ project_id: 'sa-project-id' });
     expect(resolveFirebaseProjectId()).toBe('sa-project-id');
+  });
+
+  it('resolveFirebaseDatabaseId resolves custom database id from environment or applet config', () => {
+    // Explicit FIRESTORE_DATABASE_ID in environment
+    process.env.FIRESTORE_DATABASE_ID = 'custom-db-id';
+    expect(resolveFirebaseDatabaseId()).toBe('custom-db-id');
+
+    delete process.env.FIRESTORE_DATABASE_ID;
+    // Reads from firebase-applet-config.json
+    expect(resolveFirebaseDatabaseId()).toBe('ai-studio-ebfd207a-c637-4e75-b64e-e8a1b732adc5');
   });
 
   it('createApiApp returns JSON 404 on unmatched /api routes', async () => {

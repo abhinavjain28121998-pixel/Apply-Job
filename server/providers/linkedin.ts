@@ -1,4 +1,5 @@
 import { Job, SearchFilters, ProviderStatus, JobProvider } from '../../src/types.js';
+import { linkedinJobDiscoveryService } from '../../src/services/linkedinService.js';
 
 /**
  * LinkedInJobProvider
@@ -23,6 +24,19 @@ export class LinkedInJobProvider implements JobProvider {
       process.env.LINKEDIN_ENABLED === 'true' &&
       !!(process.env.LINKEDIN_CLIENT_ID?.trim() && process.env.LINKEDIN_CLIENT_SECRET?.trim())
     );
+  }
+
+  /**
+   * Generates official LinkedIn search destination URL for the given search filters
+   * using native URLSearchParams constructor via linkedinJobDiscoveryService.
+   */
+  public getSearchUrl(filters: SearchFilters): string {
+    return linkedinJobDiscoveryService.buildSearchUrl({
+      keywords: filters.query,
+      location: filters.location,
+      workMode: filters.workMode as any,
+      experience: filters.experience
+    });
   }
 
   /**

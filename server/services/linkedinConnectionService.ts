@@ -15,8 +15,11 @@ export const linkedinConnectionService = {
         if (docSnap.exists) {
           return docSnap.data() as LinkedInConnection;
         }
-      } catch (e) {
-        console.warn('Could not read LinkedIn connection from Firestore, checking in-memory store:', e);
+      } catch (e: any) {
+        const isExpected = e?.code === 5 || e?.code === 7 || e?.message?.includes('NOT_FOUND') || e?.message?.includes('PERMISSION_DENIED');
+        if (!isExpected) {
+          console.warn('Could not read LinkedIn connection from Firestore, checking in-memory store:', e?.message || e);
+        }
       }
     }
 
@@ -32,8 +35,11 @@ export const linkedinConnectionService = {
     if (firestore) {
       try {
         await firestore.collection('linkedin_connections').doc(connection.userId).set(connection, { merge: true });
-      } catch (e) {
-        console.warn('Could not persist LinkedIn connection to Firestore:', e);
+      } catch (e: any) {
+        const isExpected = e?.code === 5 || e?.code === 7 || e?.message?.includes('NOT_FOUND') || e?.message?.includes('PERMISSION_DENIED');
+        if (!isExpected) {
+          console.warn('Could not persist LinkedIn connection to Firestore:', e?.message || e);
+        }
       }
     }
   },
@@ -54,8 +60,11 @@ export const linkedinConnectionService = {
           status: 'REVOKED',
           revokedAt: Date.now()
         }, { merge: true });
-      } catch (e) {
-        console.warn('Could not revoke LinkedIn connection in Firestore:', e);
+      } catch (e: any) {
+        const isExpected = e?.code === 5 || e?.code === 7 || e?.message?.includes('NOT_FOUND') || e?.message?.includes('PERMISSION_DENIED');
+        if (!isExpected) {
+          console.warn('Could not revoke LinkedIn connection in Firestore:', e?.message || e);
+        }
       }
     }
   }

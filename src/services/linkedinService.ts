@@ -1,6 +1,6 @@
 import { collection, query, where, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '../firebase';
-import { LinkedInSearchCriteria, SavedLinkedInSearch, ExternalJobSearchDestination, UserProfile, Job } from '../types';
+import { LinkedInSearchCriteria, SavedLinkedInSearch, ExternalJobSearchDestination, UserProfile, Job, LinkedInJobDiscoveryService } from '../types';
 import { handleFirestoreError, OperationType, shouldUseFirestore } from '../lib/firestoreError';
 
 export type { LinkedInSearchCriteria } from '../types';
@@ -70,51 +70,78 @@ export function isValidLinkedInUrl(urlStr: string): boolean {
 }
 
 /**
- * Builds an official, safely encoded LinkedIn Jobs search URL using URLSearchParams.
- * Omit empty filters and strictly use the trusted LinkedIn origin.
+ * Builds an official, safely encoded LinkedIn Jobs search URL using native URL and URLSearchParams constructors.
+ * Operates purely on client and server runtimes without needing LinkedIn API access or credentials.
+ * Automatically omits empty/whitespace filters and ensures target URLs conform to the trusted LinkedIn origin.
  */
 export function buildLinkedInJobsUrl(criteria: LinkedInSearchCriteria): string {
+  // Native URL constructor for official LinkedIn job search base
   const url = new URL(LINKEDIN_BASE_URL);
-  const params = url.searchParams;
+  
+  // Native URLSearchParams constructor to parse, format, and safely encode query parameters
+  const searchParams = new URLSearchParams();
 
-  // 1. Keywords
-  if (criteria.keywords && criteria.keywords.trim()) {
-    params.set('keywords', criteria.keywords.trim());
+  // 1. Keywords & Job Title (combining query, jobTitle, keywords without redundant duplication)
+  const kw = criteria?.keywords?.trim();
+  const jt = criteria?.jobTitle?.trim();
+  const queryParam = (criteria as any)?.query?.trim();
+
+  let combinedKeywords = '';
+  if (kw && jt) {
+    if (kw.toLowerCase().includes(jt.toLowerCase())) {
+      combinedKeywords = kw;
+    } else {
+      combinedKeywords = `${jt} ${kw}`;
+    }
+  } else {
+    combinedKeywords = kw || jt || queryParam || '';
+  }
+
+  if (combinedKeywords) {
+    searchParams.set('keywords', combinedKeywords);
   }
 
   // 2. Location
-  if (criteria.location && criteria.location.trim()) {
-    params.set('location', criteria.location.trim());
+  if (criteria?.location && criteria.location.trim()) {
+    searchParams.set('location', criteria.location.trim());
   }
 
-  // 3. Remote / Work Mode (f_WT)
-  const workType = mapWorkModeToLinkedInFilter(criteria.workMode, criteria.remote);
+  // 3. Remote / Work Mode (LinkedIn official parameter: f_WT)
+  const workType = mapWorkModeToLinkedInFilter(criteria?.workMode, criteria?.remote);
   if (workType) {
-    params.set('f_WT', workType);
+    searchParams.set('f_WT', workType);
   }
 
-  // 4. Experience Level (f_E)
-  const expCode = mapExperienceToLinkedInFilter(criteria.experience);
+  // 4. Experience Level (LinkedIn official parameter: f_E)
+  const expFilter = criteria?.experience || criteria?.experienceLevel;
+  const expCode = mapExperienceToLinkedInFilter(expFilter);
   if (expCode) {
-    params.set('f_E', expCode);
+    searchParams.set('f_E', expCode);
   }
 
-  // 5. Job Type (f_JT)
-  const jobTypeCode = mapJobTypeToLinkedInFilter(criteria.jobType);
+  // 5. Job Type / Employment Type (LinkedIn official parameter: f_JT)
+  const jobTypeFilter = criteria?.jobType || criteria?.employmentType;
+  const jobTypeCode = mapJobTypeToLinkedInFilter(jobTypeFilter);
   if (jobTypeCode) {
-    params.set('f_JT', jobTypeCode);
+    searchParams.set('f_JT', jobTypeCode);
   }
 
-  // 6. Sort By
-  if (criteria.sortBy === 'recent') {
-    params.set('sortBy', 'DD');
-  } else if (criteria.sortBy === 'relevant') {
-    params.set('sortBy', 'R');
+  // 6. Sort By (DD for Date/Recent, R for Relevant)
+  if (criteria?.sortBy === 'recent') {
+    searchParams.set('sortBy', 'DD');
+  } else if (criteria?.sortBy === 'relevant') {
+    searchParams.set('sortBy', 'R');
+  }
+
+  // Attach safe search parameters to the native URL constructor
+  const paramString = searchParams.toString();
+  if (paramString) {
+    url.search = paramString;
   }
 
   const resultUrl = url.toString();
 
-  // Final invariant check: Must be a valid LinkedIn URL
+  // Final invariant check: Must be a verified LinkedIn URL
   if (!isValidLinkedInUrl(resultUrl)) {
     throw new Error('Generated an invalid LinkedIn search URL');
   }
@@ -174,13 +201,73 @@ export function buildLinkedInSearchUrlFromProfile(profile: Partial<UserProfile>)
 }
 
 /**
+ * LinkedIn Job Discovery Service
+ * 
+ * Uses the native URL and URLSearchParams constructor to build official LinkedIn job search
+ * destination URLs based on user criteria when direct API access is unavailable or uncredentialed.
+ * Guarantees the application remains fully functional without needing specific API credentials.
+ */
+export const linkedinJobDiscoveryService: LinkedInJobDiscoveryService = {
+  /**
+   * Builds an official LinkedIn job search URL using native URL and URLSearchParams constructor.
+   */
+  buildSearchUrl(criteria: LinkedInSearchCriteria): string {
+    return buildLinkedInJobsUrl(criteria);
+  },
+
+  /**
+   * Builds an official LinkedIn search URL derived from candidate profile and CV data.
+   */
+  buildSearchUrlFromProfile(profile: Partial<UserProfile>): string {
+    return buildLinkedInSearchUrlFromProfile(profile);
+  },
+
+  /**
+   * Builds an official LinkedIn search URL targeting a specific job posting.
+   */
+  buildSearchUrlForJob(job: Partial<Job>): string {
+    return buildLinkedInSearchUrlForJob(job);
+  },
+
+  /**
+   * Discovers matching jobs using the official LinkedIn search destination when API access is unavailable.
+   * Enables continuous functionality without requiring specific API credentials or web scrapers.
+   */
+  async discoverJobs(criteria: LinkedInSearchCriteria): Promise<{
+    mode: 'EXTERNAL_SEARCH' | 'URL_DESTINATION';
+    searchUrl: string;
+    criteria: LinkedInSearchCriteria;
+    message: string;
+    jobs: Partial<Job>[];
+  }> {
+    const searchUrl = buildLinkedInJobsUrl(criteria);
+    return {
+      mode: 'EXTERNAL_SEARCH',
+      searchUrl,
+      criteria,
+      message: 'Job discovery is powered by the official LinkedIn search destination. Browse real postings directly on LinkedIn with zero API credentials or scraping required.',
+      jobs: []
+    };
+  },
+
+  /**
+   * Validates that a given URL points safely to official LinkedIn job search.
+   */
+  isValidUrl(url: string): boolean {
+    return isValidLinkedInUrl(url);
+  }
+};
+
+export const linkedInJobDiscoveryService = linkedinJobDiscoveryService;
+
+/**
  * External job destination implementation for LinkedIn
  */
 export const linkedInDestination: ExternalJobSearchDestination = {
   id: 'linkedin',
   name: 'LinkedIn Jobs',
   description: 'Search official LinkedIn jobs and apply directly on LinkedIn in a new browser tab.',
-  buildSearchUrl: (criteria: LinkedInSearchCriteria) => buildLinkedInJobsUrl(criteria)
+  buildSearchUrl: (criteria: LinkedInSearchCriteria) => linkedinJobDiscoveryService.buildSearchUrl(criteria)
 };
 
 // Local storage helper with in-memory fallback for node/test/offline environments

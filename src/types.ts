@@ -75,6 +75,20 @@ export interface LinkedInSearchDestination {
   buildSearchUrl(criteria: LinkedInSearchFilters): string;
 }
 
+export interface LinkedInJobDiscoveryService {
+  buildSearchUrl(criteria: LinkedInSearchCriteria): string;
+  buildSearchUrlFromProfile(profile: Partial<UserProfile>): string;
+  buildSearchUrlForJob(job: Partial<Job>): string;
+  discoverJobs(criteria: LinkedInSearchCriteria): Promise<{
+    mode: 'EXTERNAL_SEARCH' | 'URL_DESTINATION';
+    searchUrl: string;
+    criteria: LinkedInSearchCriteria;
+    message: string;
+    jobs: Partial<Job>[];
+  }>;
+  isValidUrl(url: string): boolean;
+}
+
 export interface LinkedInSearchCriteria {
   keywords?: string;
   jobTitle?: string;

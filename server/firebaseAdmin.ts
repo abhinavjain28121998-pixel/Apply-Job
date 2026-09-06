@@ -1,6 +1,8 @@
 import { initializeApp, getApps, cert, type App } from 'firebase-admin/app';
 import { getAuth, type Auth } from 'firebase-admin/auth';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
+import fs from 'fs';
+import path from 'path';
 
 let adminApp: App | null = null;
 let adminAuth: Auth | null = null;
@@ -33,6 +35,28 @@ export function resolveFirebaseProjectId(): string | undefined {
     }
   }
 
+  return undefined;
+}
+
+/**
+ * Resolves the Firestore Database ID from explicit environment variables or firebase-applet-config.json.
+ * Defaults to undefined (letting Firebase Admin use default if not specified).
+ */
+export function resolveFirebaseDatabaseId(): string | undefined {
+  if (process.env.FIRESTORE_DATABASE_ID && process.env.FIRESTORE_DATABASE_ID.trim()) {
+    return process.env.FIRESTORE_DATABASE_ID.trim();
+  }
+  try {
+    const configPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
+    if (fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      if (config.firestoreDatabaseId && typeof config.firestoreDatabaseId === 'string' && config.firestoreDatabaseId.trim()) {
+        return config.firestoreDatabaseId.trim();
+      }
+    }
+  } catch {
+    // Ignore read errors
+  }
   return undefined;
 }
 
@@ -120,7 +144,8 @@ export function getFirebaseFirestore(): Firestore | null {
   const app = getFirebaseAdmin();
   if (!app) return null;
   try {
-    adminFirestore = getFirestore(app);
+    const databaseId = resolveFirebaseDatabaseId();
+    adminFirestore = databaseId ? getFirestore(app, databaseId) : getFirestore(app);
     return adminFirestore;
   } catch (e) {
     console.warn('Failed to initialize Firestore Admin:', e);
@@ -128,11 +153,15 @@ export function getFirebaseFirestore(): Firestore | null {
   }
 }
 
-// Helpers to reset auth/app reference (useful for testing)
+// Helpers to reset auth/app/firestore reference (useful for testing)
 export function _setFirebaseAuth(auth: Auth | null): void {
   adminAuth = auth;
 }
 
 export function _setFirebaseAdminApp(app: App | null): void {
   adminApp = app;
+}
+
+export function _setFirebaseFirestore(firestore: Firestore | null): void {
+  adminFirestore = firestore;
 }

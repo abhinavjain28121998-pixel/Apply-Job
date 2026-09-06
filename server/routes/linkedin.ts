@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { createOAuthState, validateAndConsumeOAuthState } from '../oauthState.js';
 import { linkedinConnectionService } from '../services/linkedinConnectionService.js';
-import { buildLinkedInJobsUrl, isValidLinkedInUrl } from '../../src/services/linkedinService.js';
+import { buildLinkedInJobsUrl, isValidLinkedInUrl, linkedinJobDiscoveryService } from '../../src/services/linkedinService.js';
 import { LinkedInConnection, LinkedInStatusResponse } from '../../src/types.js';
 
 export const linkedinRouter = Router();
@@ -346,20 +346,11 @@ linkedinRouter.post('/disconnect', async (req: Request, res: Response) => {
 linkedinRouter.post('/search', async (req: Request, res: Response) => {
   try {
     const criteria = req.body || {};
-    const searchUrl = buildLinkedInJobsUrl({
-      keywords: [criteria.jobTitle, criteria.keywords, criteria.query].filter(Boolean).join(' '),
-      location: criteria.location,
-      workMode: criteria.workMode,
-      experience: criteria.experienceLevel || criteria.experience,
-      jobType: criteria.employmentType || criteria.jobType
-    });
+    const discoveryResult = await linkedinJobDiscoveryService.discoverJobs(criteria);
 
     return res.json({
-      mode: 'EXTERNAL_SEARCH',
+      ...discoveryResult,
       provider: 'linkedin',
-      searchUrl,
-      message: 'LinkedIn job discovery uses official "Search on LinkedIn" destination URLs.',
-      criteria
     });
   } catch (error: any) {
     console.error('LinkedIn search error:', error);

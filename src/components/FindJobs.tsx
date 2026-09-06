@@ -19,7 +19,8 @@ import {
   buildLinkedInJobsUrl,
   buildLinkedInSearchUrlForJob,
   buildLinkedInSearchUrlFromProfile,
-  linkedinSearchService
+  linkedinSearchService,
+  linkedinJobDiscoveryService
 } from '../services/linkedinService';
 import {
   Search,
@@ -136,7 +137,11 @@ export default function FindJobs() {
     try {
       const startRes = await linkedinAuthService.getAuthStart(user.uid);
       if (!startRes.configured || !startRes.authUrl) {
-        throw new Error(startRes.error || 'LinkedIn OAuth is not configured with client credentials.');
+        setConnectMessage(
+          startRes.error ||
+          'LinkedIn OAuth integration is optional and not currently configured. Direct job discovery via official LinkedIn Search URLs is active and ready.'
+        );
+        return;
       }
 
       await linkedinAuthService.openAuthPopup(startRes.authUrl);
@@ -144,8 +149,13 @@ export default function FindJobs() {
       await refreshLinkedInStatus(user.uid);
       setTimeout(() => setConnectMessage(null), 4000);
     } catch (err: any) {
-      console.error('LinkedIn connection failed:', err);
-      setConnectMessage(err?.message || 'LinkedIn authorization was canceled or failed.');
+      const msg = err?.message || 'LinkedIn authorization was canceled or failed.';
+      if (msg.includes('closed') || msg.includes('cancel') || msg.includes('Popup blocked')) {
+        setConnectMessage(msg);
+      } else {
+        console.warn('LinkedIn authorization info:', msg);
+        setConnectMessage(msg);
+      }
       setTimeout(() => setConnectMessage(null), 5000);
     } finally {
       setConnectingLinkedIn(false);
@@ -303,7 +313,7 @@ export default function FindJobs() {
   };
 
   const getLinkedInSearchUrl = () => {
-    return buildLinkedInJobsUrl({
+    return linkedinJobDiscoveryService.buildSearchUrl({
       keywords: filters.query,
       location: filters.location,
       workMode: filters.workMode
@@ -317,7 +327,7 @@ export default function FindJobs() {
 
   const handleOpenLinkedInFromProfile = () => {
     if (!userProfile) return;
-    const url = buildLinkedInSearchUrlFromProfile(userProfile);
+    const url = linkedinJobDiscoveryService.buildSearchUrlFromProfile(userProfile);
     // Optionally update current filters to match
     if (userProfile.currentRole) {
       setFilters(prev => ({
@@ -551,6 +561,14 @@ export default function FindJobs() {
                       <p className="text-[11px] text-slate-500 leading-tight">
                         Connect your LinkedIn account via official OpenID Connect for verified profile data.
                       </p>
+                      {linkedInStatus && !linkedInStatus.configured && (
+                        <div className="p-2 rounded bg-slate-100 border border-slate-200 text-[11px] text-slate-600 leading-snug">
+                          <p className="font-medium text-slate-700">OAuth is Optional</p>
+                          <p className="text-[10px] text-slate-500 mt-0.5">
+                            Job discovery uses official LinkedIn Search URLs directly. Profile sign-in requires credentials in Settings.
+                          </p>
+                        </div>
+                      )}
                       <button
                         type="button"
                         onClick={handleConnectLinkedIn}
@@ -558,7 +576,7 @@ export default function FindJobs() {
                         className="w-full py-1.5 px-2 bg-white border border-[#0A66C2]/40 text-[#0A66C2] hover:bg-blue-50 text-xs font-semibold rounded-md transition-colors flex items-center justify-center gap-1.5 shadow-2xs"
                       >
                         {connectingLinkedIn ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Linkedin className="w-3.5 h-3.5" />}
-                        {connectingLinkedIn ? 'Connecting...' : 'Connect with LinkedIn'}
+                        {connectingLinkedIn ? 'Connecting...' : (linkedInStatus?.configured ? 'Connect with LinkedIn' : 'Connect with LinkedIn (Optional)')}
                       </button>
                     </div>
                   )}

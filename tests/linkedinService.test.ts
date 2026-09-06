@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   buildLinkedInJobsUrl,
   buildLinkedInSearchUrlForJob,
@@ -8,7 +8,9 @@ import {
   mapWorkModeToLinkedInFilter,
   mapJobTypeToLinkedInFilter,
   linkedInDestination,
-  linkedinSearchService
+  linkedinSearchService,
+  linkedinJobDiscoveryService,
+  linkedInJobDiscoveryService
 } from '../src/services/linkedinService';
 
 describe('LinkedIn Service & Search URL Builder', () => {
@@ -223,5 +225,132 @@ describe('LinkedIn Service & Search URL Builder', () => {
       process.env.LINKEDIN_CLIENT_ID = originalClientId;
       process.env.LINKEDIN_CLIENT_SECRET = originalClientSecret;
     }
+  });
+
+  describe('linkedinJobDiscoveryService', () => {
+    it('uses native URL and URLSearchParams to build compliant LinkedIn job search URLs', () => {
+      const criteria = {
+        jobTitle: 'Principal Architect',
+        keywords: 'Distributed Systems',
+        location: 'Seattle, WA',
+        workMode: 'Remote' as const,
+        experienceLevel: 'Mid-Senior level (5+ yrs)',
+        employmentType: 'Full-time',
+        sortBy: 'recent' as const
+      };
+
+      const url = linkedinJobDiscoveryService.buildSearchUrl(criteria);
+      expect(url.startsWith('https://www.linkedin.com/jobs/search/?')).toBe(true);
+
+      const parsed = new URL(url);
+      expect(parsed.searchParams.get('keywords')).toBe('Principal Architect Distributed Systems');
+      expect(parsed.searchParams.get('location')).toBe('Seattle, WA');
+      expect(parsed.searchParams.get('f_WT')).toBe('2'); // Remote
+      expect(parsed.searchParams.get('f_E')).toBe('4'); // Mid-Senior
+      expect(parsed.searchParams.get('f_JT')).toBe('F'); // Full-time
+      expect(parsed.searchParams.get('sortBy')).toBe('DD'); // Recent
+    });
+
+    it('works seamlessly without any LinkedIn API credentials via discoverJobs', async () => {
+      const result = await linkedinJobDiscoveryService.discoverJobs({
+        keywords: 'React Developer',
+        location: 'Remote'
+      });
+
+      expect(result.mode).toBe('EXTERNAL_SEARCH');
+      expect(result.searchUrl).toContain('https://www.linkedin.com/jobs/search/?');
+      expect(result.searchUrl).toContain('keywords=React+Developer');
+      expect(result.message).toContain('official LinkedIn search destination');
+      expect(result.jobs).toEqual([]);
+    });
+
+    it('builds search URLs from profile and job objects', () => {
+      const profileUrl = linkedinJobDiscoveryService.buildSearchUrlFromProfile({
+        currentRole: 'Backend Engineer',
+        preferredLocations: ['Austin, TX'],
+        totalExperience: 3
+      });
+      expect(profileUrl).toContain('keywords=Backend+Engineer');
+      expect(profileUrl).toContain('location=Austin%2C+TX');
+      expect(profileUrl).toContain('f_E=3'); // Associate
+
+      const jobUrl = linkedinJobDiscoveryService.buildSearchUrlForJob({
+        title: 'DevOps Lead',
+        company: 'Cloud Corp',
+        location: 'Remote'
+      });
+      expect(jobUrl).toContain('keywords=DevOps+Lead+Cloud+Corp');
+    });
+
+    it('exposes aliased linkedInJobDiscoveryService identically', () => {
+      expect(linkedInJobDiscoveryService).toBe(linkedinJobDiscoveryService);
+      expect(typeof linkedInJobDiscoveryService.buildSearchUrl).toBe('function');
+      expect(typeof linkedInJobDiscoveryService.discoverJobs).toBe('function');
+    });
+
+    it('allows LinkedInJobProvider to construct search URLs via getSearchUrl', async () => {
+      const { LinkedInJobProvider } = await import('../server/providers/linkedin.js');
+      const provider = new LinkedInJobProvider();
+
+      const searchUrl = provider.getSearchUrl({
+        query: 'Machine Learning',
+        location: 'Boston, MA',
+        workMode: 'Hybrid',
+        experience: 'Senior'
+      });
+
+      const parsed = new URL(searchUrl);
+      expect(parsed.searchParams.get('keywords')).toBe('Machine Learning');
+      expect(parsed.searchParams.get('location')).toBe('Boston, MA');
+      expect(parsed.searchParams.get('f_WT')).toBe('3');
+      expect(parsed.searchParams.get('f_E')).toBe('4');
+    });
+  });
+
+  describe('linkedinConnectionService', () => {
+    it('persists and retrieves connections with in-memory fallback when Firestore is unavailable or throws', async () => {
+      const { linkedinConnectionService } = await import('../server/services/linkedinConnectionService.js');
+      const { _setFirebaseFirestore } = await import('../server/firebaseAdmin.js');
+
+      // Simulate a Firestore instance that throws gRPC 5 NOT_FOUND
+      const throwingFirestore = {
+        collection: () => ({
+          doc: () => ({
+            get: vi.fn().mockRejectedValue(Object.assign(new Error('5 NOT_FOUND: Database not found'), { code: 5 })),
+            set: vi.fn().mockRejectedValue(Object.assign(new Error('5 NOT_FOUND: Database not found'), { code: 5 }))
+          })
+        })
+      } as any;
+
+      _setFirebaseFirestore(throwingFirestore);
+
+      try {
+        const testConn = {
+          userId: 'test-user-fallback-123',
+          sub: 'sub-456',
+          displayName: 'Test Fallback User',
+          provider: 'linkedin' as const,
+          scopes: ['openid', 'profile'],
+          status: 'CONNECTED' as const,
+          connectedAt: Date.now()
+        };
+
+        // Should not throw or crash
+        await linkedinConnectionService.saveConnection(testConn);
+
+        // Should retrieve from in-memory fallback smoothly
+        const retrieved = await linkedinConnectionService.getConnection('test-user-fallback-123');
+        expect(retrieved).not.toBeNull();
+        expect(retrieved?.displayName).toBe('Test Fallback User');
+        expect(retrieved?.status).toBe('CONNECTED');
+
+        // Revoke should also handle fallback gracefully
+        await linkedinConnectionService.revokeConnection('test-user-fallback-123');
+        const revoked = await linkedinConnectionService.getConnection('test-user-fallback-123');
+        expect(revoked?.status).toBe('REVOKED');
+      } finally {
+        _setFirebaseFirestore(null);
+      }
+    });
   });
 });
