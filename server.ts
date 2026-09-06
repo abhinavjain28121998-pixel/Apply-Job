@@ -10,6 +10,7 @@ import { requireAuth, isDemoAuthAllowed, getDemoAuthToken } from './server/auth.
 import { rateLimit } from './server/rateLimit.js';
 import { generateWithGeminiCascade, parseGeminiJson, isGeminiAvailable } from './server/geminiService.js';
 import { linkedinRouter } from './server/routes/linkedin.js';
+import { buildLinkedInJobsUrl } from './src/services/linkedinService.js';
 import './server/types.js';
 
 export function createApiApp() {
@@ -56,10 +57,20 @@ export function createApiApp() {
       const paginatedJobs = unique.slice(start, start + limit);
       const hasMore = start + limit < unique.length;
 
+      const searchUrl = buildLinkedInJobsUrl({
+        keywords: [req.body.jobTitle, req.body.keywords, req.body.query].filter(Boolean).join(' '),
+        location: req.body.location,
+        workMode: req.body.workMode,
+        experience: req.body.experienceLevel || req.body.experience,
+        jobType: req.body.employmentType || req.body.jobType
+      });
+
       res.json({
         jobs: paginatedJobs,
         status,
         hasMore,
+        searchUrl,
+        mode: (status.status === 'CONNECTED' && paginatedJobs.length > 0) ? 'API' : 'EXTERNAL_SEARCH',
         diagnostics: {
           totalReturned: rawJobs.length,
           normalized: normalizedJobs.length,
@@ -108,7 +119,61 @@ export function createApiApp() {
     return result?.value ? result.value.trim() : '';
   }
 
-  // Upload and parse CV file (PDF, DOCX, TXT, MD)
+  // Helper to extract text from legacy MS Word .doc binary files (OLE2 / CFBF format)
+  function extractLegacyDocText(buffer: Buffer): string {
+    // 1. Try extracting UTF-16LE text sequences (standard in Word 97-2004 binary docs)
+    const utf16Matches: string[] = [];
+    let currentUtf16: string[] = [];
+    for (let i = 0; i < buffer.length - 1; i += 2) {
+      const low = buffer[i];
+      const high = buffer[i + 1];
+      if (high === 0 && ((low >= 0x20 && low <= 0x7E) || low === 0x0A || low === 0x0D || low === 0x09)) {
+        currentUtf16.push(String.fromCharCode(low));
+      } else {
+        if (currentUtf16.length >= 4) {
+          utf16Matches.push(currentUtf16.join(''));
+        }
+        currentUtf16 = [];
+      }
+    }
+    if (currentUtf16.length >= 4) {
+      utf16Matches.push(currentUtf16.join(''));
+    }
+
+    // 2. Try extracting 8-bit ASCII sequences
+    const asciiMatches: string[] = [];
+    let currentAscii: string[] = [];
+    for (let i = 0; i < buffer.length; i++) {
+      const byte = buffer[i];
+      if ((byte >= 0x20 && byte <= 0x7E) || byte === 0x0A || byte === 0x0D || byte === 0x09) {
+        currentAscii.push(String.fromCharCode(byte));
+      } else {
+        if (currentAscii.length >= 4) {
+          asciiMatches.push(currentAscii.join(''));
+        }
+        currentAscii = [];
+      }
+    }
+    if (currentAscii.length >= 4) {
+      asciiMatches.push(currentAscii.join(''));
+    }
+
+    const oleWords = new Set([
+      'Root Entry', 'WordDocument', 'SummaryInformation', 'DocumentSummaryInformation',
+      'Table', 'Data', 'CompObj', 'ObjectPool', 'Microsoft Word Document'
+    ]);
+
+    const cleanUtf16 = utf16Matches.filter(t => !oleWords.has(t.trim()) && t.trim().length > 3);
+    const cleanAscii = asciiMatches.filter(t => !oleWords.has(t.trim()) && t.trim().length > 3);
+
+    const utf16Words = cleanUtf16.join(' ').split(/\s+/).filter(w => w.length > 2);
+    const asciiWords = cleanAscii.join(' ').split(/\s+/).filter(w => w.length > 2);
+
+    const chosen = utf16Words.length > asciiWords.length ? cleanUtf16 : cleanAscii;
+    return chosen.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  }
+
+  // Upload and parse CV file (PDF, DOCX, DOC, TXT, MD)
   app.post("/api/upload-cv", requireAuth, rateLimit, async (req, res) => {
     try {
       const { filename, mimeType, base64Data, autoExtract } = req.body;
@@ -133,6 +198,9 @@ export function createApiApp() {
       let extractedText = '';
       let parseMethod = 'unknown';
 
+      const isZip = buffer.length > 4 && buffer[0] === 0x50 && buffer[1] === 0x4B; // PK magic bytes (docx)
+      const isOle = buffer.length > 4 && buffer[0] === 0xD0 && buffer[1] === 0xCF && buffer[2] === 0x11 && buffer[3] === 0xE0; // OLE2 (doc)
+
       // 1. Determine format and parse
       if (ext === 'pdf' || mimeType === 'application/pdf') {
         try {
@@ -141,12 +209,24 @@ export function createApiApp() {
         } catch (pdfErr) {
           console.warn('PDF parsing error, attempting text fallback:', pdfErr);
         }
-      } else if (ext === 'docx' || mimeType?.includes('wordprocessingml') || mimeType?.includes('msword')) {
+      } else if (ext === 'docx' || (isZip && mimeType?.includes('wordprocessingml'))) {
         try {
           extractedText = await extractDocxText(buffer);
           parseMethod = 'docx';
         } catch (docxErr) {
           console.warn('DOCX parsing error, attempting text fallback:', docxErr);
+        }
+      } else if (ext === 'doc' || isOle || mimeType === 'application/msword') {
+        try {
+          if (isZip) {
+            extractedText = await extractDocxText(buffer);
+            parseMethod = 'docx';
+          } else {
+            extractedText = extractLegacyDocText(buffer);
+            parseMethod = 'doc';
+          }
+        } catch (docErr) {
+          console.warn('DOC parsing error, attempting text fallback:', docErr);
         }
       } else if (ext === 'txt' || ext === 'md' || ext === 'rtf' || mimeType?.startsWith('text/')) {
         extractedText = buffer.toString('utf-8').trim();
@@ -154,6 +234,20 @@ export function createApiApp() {
       }
 
       // 2. Resilience fallbacks if format was not recognized or initial method failed
+      if (!extractedText && isZip) {
+        try {
+          extractedText = await extractDocxText(buffer);
+          if (extractedText) parseMethod = 'docx';
+        } catch {}
+      }
+
+      if (!extractedText && isOle) {
+        try {
+          extractedText = extractLegacyDocText(buffer);
+          if (extractedText) parseMethod = 'doc';
+        } catch {}
+      }
+
       if (!extractedText) {
         // Try PDF
         try {
@@ -163,17 +257,8 @@ export function createApiApp() {
       }
 
       if (!extractedText) {
-        // Try DOCX
-        try {
-          extractedText = await extractDocxText(buffer);
-          if (extractedText) parseMethod = 'docx';
-        } catch {}
-      }
-
-      if (!extractedText) {
         // Try UTF-8 string
         const utf8 = buffer.toString('utf-8').trim();
-        // Basic check if it looks like printable text
         if (utf8 && !/[\x00-\x08\x0E-\x1F]/.test(utf8.slice(0, 200))) {
           extractedText = utf8;
           parseMethod = 'text';

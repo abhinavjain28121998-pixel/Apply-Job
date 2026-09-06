@@ -7,14 +7,14 @@ describe('Job Deduplication', () => {
       title: ' Software Engineer ',
       company: 'Tech Corp',
       location: 'Remote ',
-      source: 'Naukri'
+      source: 'LinkedIn'
     };
     
     const jobB = {
       title: 'Software Engineer',
       company: 'Tech Corp',
       location: 'Remote',
-      source: 'Naukri'
+      source: 'LinkedIn'
     };
     
     expect(generateFingerprint(jobA)).toEqual(generateFingerprint(jobB));

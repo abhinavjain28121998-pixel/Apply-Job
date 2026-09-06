@@ -158,4 +158,70 @@ describe('LinkedIn Service & Search URL Builder', () => {
     const listAfter = await linkedinSearchService.getSavedSearches(userId);
     expect(listAfter.some(s => s.id === saved.id)).toBe(false);
   });
+
+  it('LinkedInJobProvider handles unconfigured state responsibly without inventing mock jobs', async () => {
+    const { LinkedInJobProvider } = await import('../server/providers/linkedin.js');
+    const provider = new LinkedInJobProvider();
+
+    expect(provider.isConfigured()).toBe(false);
+    const results = await provider.searchJobs({ query: 'Software Engineer' });
+    expect(results).toEqual([]);
+
+    const health = await provider.healthCheck();
+    expect(health.provider).toBe('LinkedIn');
+    expect(health.status).toBe('NOT_CONFIGURED');
+  });
+
+  it('getProvider returns LinkedInJobProvider when selected or when configured', async () => {
+    const { getProvider } = await import('../server/providers.js');
+    const { LinkedInJobProvider } = await import('../server/providers/linkedin.js');
+
+    const provider = getProvider('linkedin');
+    expect(provider).toBeInstanceOf(LinkedInJobProvider);
+
+    const prev = process.env.JOB_PROVIDER;
+    process.env.JOB_PROVIDER = 'linkedin';
+    try {
+      const defaultProvider = getProvider();
+      expect(defaultProvider).toBeInstanceOf(LinkedInJobProvider);
+    } finally {
+      process.env.JOB_PROVIDER = prev;
+    }
+  });
+
+  it('evaluates LinkedInJobProvider configuration strictly against minimum OAuth credentials', async () => {
+    const { LinkedInJobProvider } = await import('../server/providers/linkedin.js');
+    const provider = new LinkedInJobProvider();
+
+    const originalEnabled = process.env.LINKEDIN_ENABLED;
+    const originalClientId = process.env.LINKEDIN_CLIENT_ID;
+    const originalClientSecret = process.env.LINKEDIN_CLIENT_SECRET;
+
+    try {
+      // 1. When disabled
+      process.env.LINKEDIN_ENABLED = 'false';
+      process.env.LINKEDIN_CLIENT_ID = 'my_client_id';
+      process.env.LINKEDIN_CLIENT_SECRET = 'my_secret';
+      expect(provider.isConfigured()).toBe(false);
+
+      // 2. When enabled but missing client secret
+      process.env.LINKEDIN_ENABLED = 'true';
+      process.env.LINKEDIN_CLIENT_ID = 'my_client_id';
+      delete process.env.LINKEDIN_CLIENT_SECRET;
+      expect(provider.isConfigured()).toBe(false);
+
+      // 3. When enabled with both credentials
+      process.env.LINKEDIN_ENABLED = 'true';
+      process.env.LINKEDIN_CLIENT_ID = 'my_client_id';
+      process.env.LINKEDIN_CLIENT_SECRET = 'my_secret';
+      expect(provider.isConfigured()).toBe(true);
+
+      const health = await provider.healthCheck();
+      expect(health.status).toBe('CONNECTED');
+    } finally {
+      process.env.LINKEDIN_ENABLED = originalEnabled;
+      process.env.LINKEDIN_CLIENT_ID = originalClientId;
+      process.env.LINKEDIN_CLIENT_SECRET = originalClientSecret;
+    }
+  });
 });

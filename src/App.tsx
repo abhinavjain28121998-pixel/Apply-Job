@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { BrowserRouter, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
-import { Briefcase, LayoutDashboard, UserCircle, LogOut, Search } from 'lucide-react';
+import { Briefcase, LayoutDashboard, UserCircle, LogOut, Search, Linkedin } from 'lucide-react';
 import { AuthProvider, useAuth } from './AuthContext';
 import { isFirebaseConfigured } from './firebase';
 import { cn } from './lib/utils';
@@ -31,16 +31,16 @@ function Login() {
   return (
     <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#F8FAFC] text-slate-900 font-sans">
       <div className="max-w-md w-full p-8 bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col items-center">
-        <div className="w-12 h-12 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-2xl mb-4">
-          N
+        <div className="w-12 h-12 bg-[#0A66C2] rounded-xl flex items-center justify-center text-white mb-4 shadow-sm">
+          <Linkedin className="w-7 h-7" />
         </div>
-        <h1 className="text-2xl font-bold text-slate-800 mb-2">Naukri AI Assistant</h1>
+        <h1 className="text-2xl font-bold text-slate-800 mb-2">LinkedIn AI Assistant</h1>
         <p className="text-slate-500 text-center mb-8">Sign in to track, analyze, and tailor your job applications.</p>
         
         {hasFirebase && (
           <button
             onClick={signIn}
-            className="w-full bg-indigo-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-indigo-700 transition-colors mb-3"
+            className="w-full bg-[#0A66C2] text-white py-3 px-4 rounded-lg font-medium hover:bg-[#004182] transition-colors mb-3 flex items-center justify-center gap-2 shadow-sm"
           >
             Sign in with Google
           </button>
@@ -79,8 +79,10 @@ function Layout({ children }: { children: React.ReactNode }) {
       {/* Sidebar */}
       <aside className="w-64 bg-white border-r border-slate-200 flex flex-col hidden md:flex fixed h-full z-10">
         <div className="p-6 border-b border-slate-100 flex items-center gap-3">
-          <div className="w-8 h-8 bg-indigo-600 rounded flex items-center justify-center text-white font-bold text-xl">N</div>
-          <span className="font-bold tracking-tight text-slate-800">Naukri AI Assistant</span>
+          <div className="w-8 h-8 bg-[#0A66C2] rounded-lg flex items-center justify-center text-white">
+            <Linkedin className="w-5 h-5" />
+          </div>
+          <span className="font-bold tracking-tight text-slate-800">LinkedIn AI Assistant</span>
         </div>
         <nav className="flex-1 p-4 space-y-1">
           <div className="px-4 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Menu</div>

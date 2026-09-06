@@ -48,16 +48,16 @@ export default function AnalyzeJobModal({ onClose, onJobAdded }: { onClose: () =
       const analysis = result.data;
 
       // 3. Save to Firestore
-      
-      
-      const newJobId = String(Math.random());
+      const isLinkedIn = url.toLowerCase().includes('linkedin.com') || !url;
+      const newJobId = `job_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
       const jobData = {
         id: newJobId,
         company,
         title,
-        url,
+        url: url || `https://www.linkedin.com/jobs/search/?keywords=${encodeURIComponent(title + ' ' + company)}`,
         description,
-        source: 'Manual'
+        source: isLinkedIn ? 'LinkedIn' : 'Manual',
+        postedDate: Date.now()
       };
       
       await jobService.saveJob(user.uid, jobData as Job);

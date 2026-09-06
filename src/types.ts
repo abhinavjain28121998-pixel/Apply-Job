@@ -44,15 +44,51 @@ export interface UserProfile {
   workHistory?: WorkExperience[];
 }
 
-export type JobSource = 'mock' | 'naukri' | 'linkedin' | 'external' | string;
+export type JobSource = 'linkedin' | 'external' | 'manual' | string;
+
+export interface LinkedInSearchFilters {
+  keywords?: string;
+  jobTitle?: string;
+  location?: string;
+  experienceLevel?: string;
+  industry?: string;
+  companySize?: string;
+  workMode?: string;
+  employmentType?: string;
+  salaryMin?: number;
+  salaryMax?: number;
+}
+
+export interface LinkedInJobSearchResult {
+  jobs: Partial<Job>[];
+  total?: number;
+  hasMore?: boolean;
+}
+
+export interface LinkedInJobProvider {
+  searchJobs(filters: LinkedInSearchFilters): Promise<LinkedInJobSearchResult>;
+  getJobDetails(jobId: string): Promise<Partial<Job>>;
+  healthCheck(): Promise<ProviderStatus>;
+}
+
+export interface LinkedInSearchDestination {
+  buildSearchUrl(criteria: LinkedInSearchFilters): string;
+}
 
 export interface LinkedInSearchCriteria {
   keywords?: string;
+  jobTitle?: string;
   location?: string;
   remote?: boolean | 'Remote' | 'Hybrid' | 'On-site';
   workMode?: 'Remote' | 'Hybrid' | 'On-site' | '';
   experience?: string;
+  experienceLevel?: string;
   jobType?: string;
+  employmentType?: string;
+  industry?: string;
+  companySize?: string;
+  salaryMin?: number;
+  salaryMax?: number;
   sortBy?: 'recent' | 'relevant';
 }
 
@@ -258,12 +294,15 @@ export interface LinkedInConnection {
 }
 
 export interface LinkedInStatusResponse {
+  enabled?: boolean;
   configured: boolean;
   connected: boolean;
-  jobSearchApiAvailable: boolean;
+  jobSearchApiAvailable?: boolean;
   scopes: string[];
+  redirectUri?: string;
+  configError?: string | null;
   lastConnected?: number;
-  providerMode: 'SEARCH_DESTINATION_FALLBACK' | 'ENTERPRISE_API';
+  providerMode?: 'SEARCH_DESTINATION_FALLBACK' | 'ENTERPRISE_API' | string;
   message: string;
   displayName?: string;
   email?: string;

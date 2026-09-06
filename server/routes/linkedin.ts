@@ -8,6 +8,10 @@ export const linkedinRouter = Router();
 
 const DEFAULT_SCOPES = 'openid profile email';
 
+/**
+ * Derives the exact OAuth callback URI.
+ * Matches the LinkedIn Developer Portal configured redirect URI.
+ */
 function getRedirectUri(req: Request): string {
   if (process.env.LINKEDIN_REDIRECT_URI && process.env.LINKEDIN_REDIRECT_URI.trim()) {
     return process.env.LINKEDIN_REDIRECT_URI.trim();
@@ -23,13 +27,16 @@ function getRedirectUri(req: Request): string {
 /**
  * GET /api/linkedin/status
  * Returns current configuration and connection state for the user.
+ * Validates only the required configuration:
+ * LINKEDIN_ENABLED, LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET, LINKEDIN_REDIRECT_URI, LINKEDIN_SCOPES.
  */
 linkedinRouter.get('/status', async (req: Request, res: Response) => {
   try {
-    const clientId = process.env.LINKEDIN_CLIENT_ID;
-    const clientSecret = process.env.LINKEDIN_CLIENT_SECRET;
-    const isConfigured = !!(clientId && clientSecret);
-    const isJobSearchApiEnabled = process.env.LINKEDIN_JOB_SEARCH_API_ENABLED === 'true';
+    const isEnabled = process.env.LINKEDIN_ENABLED === 'true';
+    const clientId = process.env.LINKEDIN_CLIENT_ID?.trim();
+    const clientSecret = process.env.LINKEDIN_CLIENT_SECRET?.trim();
+    const redirectUri = getRedirectUri(req);
+    const scopes = (process.env.LINKEDIN_SCOPES || DEFAULT_SCOPES).trim();
     const userId = (req.query.userId as string) || (req as any).user?.uid || '';
 
     let connection: LinkedInConnection | null = null;
@@ -39,18 +46,45 @@ linkedinRouter.get('/status', async (req: Request, res: Response) => {
 
     const isConnected = connection ? connection.status === 'CONNECTED' : false;
 
+    let isConfigured = false;
+    let configError: string | null = null;
+
+    if (!isEnabled) {
+      isConfigured = false;
+    } else {
+      const missing: string[] = [];
+      if (!clientId) missing.push('LINKEDIN_CLIENT_ID');
+      if (!clientSecret) missing.push('LINKEDIN_CLIENT_SECRET');
+
+      if (missing.length > 0) {
+        isConfigured = false;
+        configError = `LinkedIn OAuth is enabled (LINKEDIN_ENABLED=true), but missing required credentials: ${missing.join(', ')}.`;
+      } else {
+        isConfigured = true;
+      }
+    }
+
     const response: LinkedInStatusResponse = {
+      enabled: isEnabled,
       configured: isConfigured,
       connected: isConnected,
-      jobSearchApiAvailable: isJobSearchApiEnabled,
-      scopes: (process.env.LINKEDIN_SCOPES || DEFAULT_SCOPES).split(/\s+/),
+      jobSearchApiAvailable: false,
+      scopes: scopes.split(/\s+/),
+      redirectUri,
+      configError,
       lastConnected: connection?.connectedAt,
-      providerMode: isJobSearchApiEnabled ? 'ENTERPRISE_API' : 'SEARCH_DESTINATION_FALLBACK',
-      message: isJobSearchApiEnabled
-        ? 'Official LinkedIn Enterprise Partner Job Search API is active.'
-        : 'LinkedIn does not offer a public consumer job search API. Job discovery is active via official "Search on LinkedIn" destination URLs.',
+      providerMode: 'SEARCH_DESTINATION_FALLBACK',
+      message: !isEnabled
+        ? 'LinkedIn OAuth sign-in is disabled (LINKEDIN_ENABLED=false). Job discovery is active via official "Search on LinkedIn" search URLs.'
+        : !isConfigured
+        ? (configError || 'LinkedIn OAuth credentials are not fully configured.')
+        : isConnected
+        ? 'LinkedIn OpenID Connect account is connected.'
+        : 'LinkedIn OAuth is configured and ready to connect.',
       displayName: connection?.displayName,
-      email: connection?.email
+      email: connection?.email,
+      pictureUrl: connection?.pictureUrl,
+      account: connection || undefined
     };
 
     res.json(response);
@@ -66,13 +100,25 @@ linkedinRouter.get('/status', async (req: Request, res: Response) => {
  */
 linkedinRouter.get('/auth/start', async (req: Request, res: Response) => {
   try {
-    const clientId = process.env.LINKEDIN_CLIENT_ID;
-    const clientSecret = process.env.LINKEDIN_CLIENT_SECRET;
-
-    if (!clientId || !clientSecret) {
+    const isEnabled = process.env.LINKEDIN_ENABLED === 'true';
+    if (!isEnabled) {
       return res.status(200).json({
         configured: false,
-        error: 'LinkedIn OAuth credentials are not configured in environment (LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET are required).',
+        error: 'LinkedIn OAuth integration is currently disabled (LINKEDIN_ENABLED=false). Set LINKEDIN_ENABLED=true in your environment to enable.',
+        authUrl: null
+      });
+    }
+
+    const clientId = process.env.LINKEDIN_CLIENT_ID?.trim();
+    const clientSecret = process.env.LINKEDIN_CLIENT_SECRET?.trim();
+
+    if (!clientId || !clientSecret) {
+      const missing: string[] = [];
+      if (!clientId) missing.push('LINKEDIN_CLIENT_ID');
+      if (!clientSecret) missing.push('LINKEDIN_CLIENT_SECRET');
+      return res.status(200).json({
+        configured: false,
+        error: `LinkedIn OAuth is enabled (LINKEDIN_ENABLED=true), but missing required credentials: ${missing.join(', ')}.`,
         authUrl: null
       });
     }
@@ -169,12 +215,12 @@ const callbackHandler = async (req: Request, res: Response) => {
     }));
   }
 
-  const clientId = process.env.LINKEDIN_CLIENT_ID;
-  const clientSecret = process.env.LINKEDIN_CLIENT_SECRET;
+  const clientId = process.env.LINKEDIN_CLIENT_ID?.trim();
+  const clientSecret = process.env.LINKEDIN_CLIENT_SECRET?.trim();
   if (!clientId || !clientSecret) {
     return res.status(500).send(renderPopupScript({ 
       type: 'LINKEDIN_AUTH_ERROR', 
-      error: 'LinkedIn OAuth credentials are not configured on server.' 
+      error: 'LinkedIn OAuth credentials (LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET) are not configured on server.' 
     }));
   }
 
@@ -219,19 +265,19 @@ const callbackHandler = async (req: Request, res: Response) => {
       if (userinfoRes.ok) {
         profileData = await userinfoRes.json();
       }
-    } catch (e) {
-      console.warn('Could not fetch LinkedIn userinfo:', e);
+    } catch (profileErr) {
+      console.warn('Could not fetch LinkedIn profile details:', profileErr);
     }
 
-    const userId = validation.userId || profileData.sub || 'user_' + Date.now();
+    const userId = validation.userId || `user_${Date.now()}`;
     const connection: LinkedInConnection = {
       userId,
       provider: 'linkedin',
       connectedAt: Date.now(),
-      scopes: (tokenData.scope || process.env.LINKEDIN_SCOPES || DEFAULT_SCOPES).split(/\s+/),
+      scopes: (process.env.LINKEDIN_SCOPES || DEFAULT_SCOPES).split(/\s+/),
       status: 'CONNECTED',
-      linkedInMemberId: profileData.sub,
-      displayName: profileData.name || `${profileData.given_name || ''} ${profileData.family_name || ''}`.trim() || undefined,
+      linkedInMemberId: profileData.sub || profileData.id,
+      displayName: profileData.name || [profileData.given_name, profileData.family_name].filter(Boolean).join(' ') || 'LinkedIn User',
       email: profileData.email,
       pictureUrl: profileData.picture
     };
@@ -243,32 +289,102 @@ const callbackHandler = async (req: Request, res: Response) => {
       connection
     }));
   } catch (err: any) {
-    console.error('Error during LinkedIn OAuth callback:', err);
+    console.error('LinkedIn OAuth callback handling exception:', err);
     return res.status(500).send(renderPopupScript({
       type: 'LINKEDIN_AUTH_ERROR',
-      error: err?.message || 'Server error exchanging LinkedIn authorization token.'
+      error: err?.message || 'Unexpected failure during OAuth callback processing.'
     }));
   }
 };
 
-linkedinRouter.get(['/auth/callback', '/auth/callback/'], callbackHandler);
+linkedinRouter.get('/auth/callback', callbackHandler);
+linkedinRouter.get('/auth/callback/', callbackHandler);
 
 /**
  * POST /api/linkedin/auth/revoke
- * Revokes LinkedIn connection for candidate.
+ * Revokes LinkedIn OAuth session.
  */
 linkedinRouter.post('/auth/revoke', async (req: Request, res: Response) => {
   try {
-    const userId = req.body.userId || (req as any).user?.uid;
+    const userId = req.body?.userId || (req as any).user?.uid;
     if (!userId) {
-      return res.status(400).json({ error: 'Missing userId to disconnect' });
+      return res.status(400).json({ error: 'userId is required' });
     }
 
     await linkedinConnectionService.revokeConnection(userId);
-    res.json({ success: true, message: 'LinkedIn connection has been disconnected.' });
+    res.json({ success: true, message: 'LinkedIn connection revoked successfully' });
+  } catch (error: any) {
+    console.error('Failed to revoke LinkedIn connection:', error);
+    res.status(500).json({ error: 'Failed to revoke LinkedIn connection' });
+  }
+});
+
+/**
+ * POST /api/linkedin/disconnect
+ * Alias for disconnect.
+ */
+linkedinRouter.post('/disconnect', async (req: Request, res: Response) => {
+  try {
+    const userId = req.body?.userId || (req as any).user?.uid;
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+
+    await linkedinConnectionService.revokeConnection(userId);
+    res.json({ success: true, message: 'LinkedIn connection revoked successfully' });
   } catch (error: any) {
     console.error('Failed to disconnect LinkedIn:', error);
     res.status(500).json({ error: 'Failed to disconnect LinkedIn' });
+  }
+});
+
+/**
+ * POST /api/linkedin/search
+ * Generates official LinkedIn Search Destination URL based on user criteria.
+ * Uses URLSearchParams, zero scraping, and zero third-party API credentials.
+ */
+linkedinRouter.post('/search', async (req: Request, res: Response) => {
+  try {
+    const criteria = req.body || {};
+    const searchUrl = buildLinkedInJobsUrl({
+      keywords: [criteria.jobTitle, criteria.keywords, criteria.query].filter(Boolean).join(' '),
+      location: criteria.location,
+      workMode: criteria.workMode,
+      experience: criteria.experienceLevel || criteria.experience,
+      jobType: criteria.employmentType || criteria.jobType
+    });
+
+    return res.json({
+      mode: 'EXTERNAL_SEARCH',
+      provider: 'linkedin',
+      searchUrl,
+      message: 'LinkedIn job discovery uses official "Search on LinkedIn" destination URLs.',
+      criteria
+    });
+  } catch (error: any) {
+    console.error('LinkedIn search error:', error);
+    res.status(400).json({ error: error?.message || 'Failed to process LinkedIn search' });
+  }
+});
+
+/**
+ * GET /api/linkedin/jobs/:id
+ * Generates direct view link to the official LinkedIn job posting.
+ */
+linkedinRouter.get('/jobs/:id', async (req: Request, res: Response) => {
+  try {
+    const cleanId = req.params.id.replace(/^li_/, '');
+    const officialUrl = `https://www.linkedin.com/jobs/view/${encodeURIComponent(cleanId)}`;
+
+    return res.json({
+      id: req.params.id,
+      url: officialUrl,
+      source: 'LinkedIn',
+      message: 'Job details are viewed directly on the official LinkedIn job posting page.'
+    });
+  } catch (error: any) {
+    console.error('LinkedIn get job details error:', error);
+    res.status(500).json({ error: error?.message || 'Failed to retrieve job details' });
   }
 });
 

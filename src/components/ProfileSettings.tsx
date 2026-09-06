@@ -624,14 +624,14 @@ export default function ProfileSettings() {
 
                   {providerStatus.status === 'DEMO' && (
                     <div className="text-sm text-slate-600">
-                      You are currently using the Mock Provider. This mode returns simulated job data for UI testing and demonstration.
-                      To connect to live Naukri data, update <code>JOB_PROVIDER=naukri</code> and provide API credentials in your server environment variables.
+                      You are currently using the Demo Provider for UI testing.
+                      Job discovery is powered by the official LinkedIn Search Destination builder.
                     </div>
                   )}
 
                   {providerStatus.status === 'NOT_CONFIGURED' && (
-                    <div className="text-sm text-amber-700 bg-amber-50 p-4 rounded-lg border border-amber-200">
-                      <strong>Missing API Credentials.</strong> Your environment is set to use the Naukri provider, but the required secrets (<code>NAUKRI_API_KEY</code>, <code>NAUKRI_CLIENT_ID</code>) are missing.
+                    <div className="text-sm text-slate-700 bg-blue-50 p-4 rounded-lg border border-blue-200">
+                      <strong>Official LinkedIn Job Search Destination:</strong> Job discovery uses verified, direct LinkedIn Search URLs based on your profile and search criteria. No third-party API credentials, browser automation, or scraping are required.
                     </div>
                   )}
 
