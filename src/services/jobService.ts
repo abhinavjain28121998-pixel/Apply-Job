@@ -26,7 +26,7 @@ export const jobService = {
   },
   
   getSavedJob: async (userId: string, jobId: string): Promise<SavedJob | null> => {
-    const docId = `${userId}_${jobId}`;
+    const docId = `${userId}_${jobId}`; // Kept unique by composite because user can only save a specific job once
     if (isFirebaseConfigured() && db) {
       const docSnap = await getDoc(doc(db, 'saved_jobs', docId));
       if (docSnap.exists()) {
@@ -61,7 +61,7 @@ export const jobService = {
   },
 
   updateSavedJob: async (userId: string, jobId: string, updates: Partial<SavedJob>): Promise<void> => {
-    const docId = `${userId}_${jobId}`;
+    const docId = `${userId}_${jobId}`; // Kept unique by composite because user can only save a specific job once
     if (isFirebaseConfigured() && db) {
       await updateDoc(doc(db, 'saved_jobs', docId), updates as any);
     } else {

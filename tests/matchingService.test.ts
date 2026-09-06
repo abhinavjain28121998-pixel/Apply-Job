@@ -1,9 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { MatchingService } from '../src/services/matchingService.js';
 
-// We can test the deterministic calculation by exposing it or making a mock
-// The calculateDeterministicScore is currently private.
-// We can use any cast to bypass private for testing
 describe('MatchingService Deterministic Scoring', () => {
   const matchingService = new (MatchingService as any)();
 
@@ -27,70 +24,70 @@ describe('MatchingService Deterministic Scoring', () => {
     const result = matchingService.calculateDeterministicScore(evalMock);
     expect(result.matchScore).toBe(100);
     expect(result.recommendation).toBe('APPLY');
+    expect(result.confidenceScore).toBe(100);
   });
 
-  it('should lower score for UNCLEAR and MISSING', () => {
+  it('missing required but non-critical skill', () => {
     const evalMock = {
       skills: [
-        { requirement: 'React', importance: 'REQUIRED', matchLevel: 'MISSING' },
-        { requirement: 'TypeScript', importance: 'PREFERRED', matchLevel: 'UNCLEAR' }
+        { requirement: 'React', importance: 'REQUIRED', critical: false, matchLevel: 'MISSING' }
+      ]
+    };
+    const result = matchingService.calculateDeterministicScore(evalMock);
+    expect(result.matchScore).toBe(20); 
+    // Missing required, non-critical puts it in SKIP because score < 40
+    // Wait, let's bump the score by adding matching other things to isolate the skill logic
+  });
+  
+  it('missing required but non-critical skill (high score)', () => {
+    const evalMock = {
+      skills: [
+        { requirement: 'React', importance: 'REQUIRED', critical: false, matchLevel: 'MISSING' }
       ],
-      experience: { requirement: 'Req', matchLevel: 'MISSING' },
+      experience: { requirement: 'Req', matchLevel: 'MATCHED' },
       seniority: { requirement: 'Req', matchLevel: 'MATCHED' },
       responsibilities: [
         { requirement: 'Req', matchLevel: 'MATCHED' }
-      ],
-      industry: { requirement: 'Req', matchLevel: 'MATCHED' },
-      education: { requirement: 'Req', matchLevel: 'MATCHED' },
-      location: { requirement: 'Req', matchLevel: 'MATCHED' },
-      otherFit: { requirement: 'Req', matchLevel: 'MATCHED' }
+      ]
     };
-
     const result = matchingService.calculateDeterministicScore(evalMock);
-    expect(result.matchScore).toBeLessThan(70);
-    expect(result.recommendation).toBe('LOW_PRIORITY');
-    expect(result.missingRequiredSkills).toContain('React');
+    expect(result.matchScore).toBeGreaterThan(40);
+    expect(result.recommendation).toBe('APPLY_WITH_CHANGES'); 
   });
 
-  it('should classify as LOW_PRIORITY if score < 65 but no required skills missing', () => {
+  it('missing critical skill', () => {
     const evalMock = {
       skills: [
-        { requirement: 'React', importance: 'REQUIRED', matchLevel: 'MATCHED' },
+        { requirement: 'Security Clearance', importance: 'REQUIRED', critical: true, matchLevel: 'MISSING' }
       ],
-      experience: { requirement: 'Req', matchLevel: 'MISSING' },
-      seniority: { requirement: 'Req', matchLevel: 'MISSING' },
+      experience: { requirement: 'Req', matchLevel: 'MATCHED' },
+      seniority: { requirement: 'Req', matchLevel: 'MATCHED' },
       responsibilities: [
-        { requirement: 'Req', matchLevel: 'MISSING' }
-      ],
-      industry: { requirement: 'Req', matchLevel: 'MISSING' },
-      education: { requirement: 'Req', matchLevel: 'MISSING' },
-      location: { requirement: 'Req', matchLevel: 'MISSING' },
-      otherFit: { requirement: 'Req', matchLevel: 'MISSING' }
+        { requirement: 'Req', matchLevel: 'MATCHED' }
+      ]
     };
-
     const result = matchingService.calculateDeterministicScore(evalMock);
-    expect(result.matchScore).toBe(35); // only skills match
-    expect(result.recommendation).toBe('SKIP'); // Wait, <40 is SKIP
+    // Despite high score, critical missing = SKIP
+    expect(result.recommendation).toBe('SKIP');
   });
-  
-  it('should classify as LOW_PRIORITY if score between 40-64', () => {
-    const evalMock = {
-      skills: [
-        { requirement: 'React', importance: 'REQUIRED', matchLevel: 'MATCHED' },
-      ],
-      experience: { requirement: 'Req', matchLevel: 'MISSING' },
-      seniority: { requirement: 'Req', matchLevel: 'MATCHED' }, // 15
-      responsibilities: [
-        { requirement: 'Req', matchLevel: 'MISSING' }
-      ],
-      industry: { requirement: 'Req', matchLevel: 'MISSING' },
-      education: { requirement: 'Req', matchLevel: 'MISSING' },
-      location: { requirement: 'Req', matchLevel: 'MISSING' },
-      otherFit: { requirement: 'Req', matchLevel: 'MISSING' }
-    };
 
+  it('no extracted requirements', () => {
+    const evalMock = {};
     const result = matchingService.calculateDeterministicScore(evalMock);
-    expect(result.matchScore).toBe(50); // 35 + 15
-    expect(result.recommendation).toBe('LOW_PRIORITY');
+    expect(result.matchScore).toBe(0);
+    expect(result.confidenceScore).toBe(0);
+  });
+
+  it('partial experience match (numerical)', () => {
+    const evalMock = {
+      experience: { 
+        requirement: '5 years React', 
+        matchLevel: 'UNCLEAR', // Level doesn't matter if numerical are present
+        requiredYears: 5,
+        candidateYears: 2
+      }
+    };
+    const result = matchingService.calculateDeterministicScore(evalMock);
+    expect(result.matchScore).toBe(40); // 2/5 = 40% of the totalPossible (which is just experience since it's the only one)
   });
 });

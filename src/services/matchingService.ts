@@ -19,6 +19,7 @@ export interface ExperienceEvidence extends MatchEvidence {
 
 export interface JobMatchResult {
   matchScore: number;
+  confidenceScore: number;
   matchExplanation: string;
   skillsMatch: string;
   experienceMatch: string;
@@ -69,6 +70,7 @@ Rules for evaluation:
 - Never infer a missing qualification as a match. If it's not explicitly in the CV or strongly implied, mark it as MISSING or UNCLEAR.
 - For experience, try to extract the required years and candidate's relevant years numerically.
 - Required skills are those explicitly stated as must-haves. Critical ones are absolute deal-breakers.
+- Base your answers strictly on evidence in the text.
 
 Return a JSON object matching this schema exactly:
 {
@@ -119,7 +121,6 @@ ${baseCv}`;
       throw new Error("Invalid JSON from AI");
     }
     
-    // Strict runtime validation
     if (!data || typeof data !== 'object') throw new Error("Parsed data is not an object");
     
     return {
@@ -136,10 +137,9 @@ ${baseCv}`;
   }
 
   private fallbackAnalysis(jobDescription: string, baseCv: string): JobMatchResult {
-    // Basic fallback matching
-    const score = 50;
     return {
-      matchScore: score,
+      matchScore: 50,
+      confidenceScore: 0,
       matchExplanation: "Fallback analysis used due to missing API key or parsing error.",
       skillsMatch: "N/A",
       experienceMatch: "N/A",
@@ -160,9 +160,13 @@ ${baseCv}`;
     let totalEarned = 0;
     let totalPossible = 0;
 
+    let itemsWithEvidence = 0;
+    let totalCategoriesEvaluated = 8; // Skills, Exp, Sen, Resp, Ind, Edu, Loc, Other
+
     const calculateCategoryScore = (evidence: MatchEvidence | null, weight: number): number => {
       if (!evidence || !evidence.requirement) return 0; // If missing, we don't count it in possible points (normalize)
       totalPossible += weight;
+      itemsWithEvidence++;
       if (evidence.matchLevel === 'MATCHED') return weight;
       if (evidence.matchLevel === 'UNCLEAR') return weight * 0.4;
       return 0;
@@ -172,6 +176,7 @@ ${baseCv}`;
     const skills = evaluation.skills || [];
     if (skills.length > 0) {
       totalPossible += SCORING_WEIGHTS.skills;
+      itemsWithEvidence++;
       const requiredSkills = skills.filter((s: any) => s.importance === 'REQUIRED');
       const preferredSkills = skills.filter((s: any) => s.importance === 'PREFERRED');
       
@@ -195,13 +200,13 @@ ${baseCv}`;
       totalEarned += (reqScore + prefScore);
     }
 
-    // Experience (handle numerical if available)
+    // Experience (numerical if available)
     if (evaluation.experience && evaluation.experience.requirement) {
       totalPossible += SCORING_WEIGHTS.experience;
+      itemsWithEvidence++;
       const exp = evaluation.experience as ExperienceEvidence;
       if (typeof exp.requiredYears === 'number' && typeof exp.candidateYears === 'number' && exp.requiredYears > 0) {
         const ratio = Math.min(exp.candidateYears / exp.requiredYears, 1.0);
-        // If they have 0 years and 5 required, ratio is 0. If 4 and 5 required, ratio is 0.8
         totalEarned += (ratio * SCORING_WEIGHTS.experience);
       } else {
         if (exp.matchLevel === 'MATCHED') totalEarned += SCORING_WEIGHTS.experience;
@@ -215,6 +220,7 @@ ${baseCv}`;
     const responsibilities = evaluation.responsibilities || [];
     if (responsibilities.length > 0) {
       totalPossible += SCORING_WEIGHTS.responsibilities;
+      itemsWithEvidence++;
       const matched = responsibilities.filter((r: any) => r.matchLevel === 'MATCHED').length;
       const unclear = responsibilities.filter((r: any) => r.matchLevel === 'UNCLEAR').length;
       totalEarned += ((matched + unclear * 0.4) / responsibilities.length) * SCORING_WEIGHTS.responsibilities;
@@ -227,6 +233,11 @@ ${baseCv}`;
 
     // Normalize score to 100
     let score = totalPossible > 0 ? Math.round((totalEarned / totalPossible) * 100) : 0;
+    
+    // Calculate Confidence Score
+    let confidenceScore = Math.round((itemsWithEvidence / totalCategoriesEvaluated) * 100);
+    // Penalize confidence if no requirements extracted at all
+    if (totalPossible === 0) confidenceScore = 0;
 
     const missingRequired = (evaluation.skills || []).filter((s: any) => s.importance === 'REQUIRED' && s.matchLevel === 'MISSING').map((s: any) => s.requirement);
     const missingCritical = (evaluation.skills || []).filter((s: any) => s.importance === 'REQUIRED' && s.critical === true && s.matchLevel === 'MISSING').map((s: any) => s.requirement);
@@ -237,7 +248,6 @@ ${baseCv}`;
     } else if (score < 65) {
       recommendation = 'LOW_PRIORITY';
     } else if (score < 85 || (evaluation.skills || []).some((s: any) => s.matchLevel === 'UNCLEAR') || missingRequired.length > 0) {
-      // Missing non-critical required skills puts it at APPLY_WITH_CHANGES
       recommendation = 'APPLY_WITH_CHANGES';
     }
 
@@ -246,6 +256,7 @@ ${baseCv}`;
 
     return {
       matchScore: score,
+      confidenceScore,
       matchExplanation: `Match Score: ${score}/100. ${missingCritical.length > 0 ? 'Missing critical requirements.' : 'Good overall fit.'}`,
       skillsMatch: `${matchedSkills.length} matched, ${missingRequired.length} required missing.`,
       experienceMatch: evaluation.experience?.evidence || 'N/A',

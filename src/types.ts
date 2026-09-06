@@ -2,6 +2,25 @@ export type JobRecommendation = 'APPLY' | 'APPLY_WITH_CHANGES' | 'LOW_PRIORITY' 
 
 export type JobStatus = 'DISCOVERED' | 'SAVED' | 'PREPARING' | 'READY_FOR_REVIEW' | 'APPLYING' | 'APPLIED' | 'INTERVIEW' | 'OFFER' | 'REJECTED';
 
+export type RequirementCategory = 'SKILL' | 'EXPERIENCE' | 'RESPONSIBILITY' | 'EDUCATION' | 'CERTIFICATION' | 'LOCATION' | 'OTHER';
+
+export interface JobRequirement {
+  id: string;
+  text: string;
+  category: RequirementCategory;
+  importance: 'REQUIRED' | 'PREFERRED';
+  critical: boolean;
+}
+
+export interface WorkExperience {
+  company: string;
+  title: string;
+  startYear?: number;
+  endYear?: number;
+  description: string;
+  skillsUsed?: string[];
+}
+
 export interface UserProfile {
   id: string;
   userId: string;
@@ -18,6 +37,7 @@ export interface UserProfile {
   preferredLocations?: string[];
   workMode?: string;
   expectedSalary?: string;
+  workHistory?: WorkExperience[];
 }
 
 export interface SearchFilters {
@@ -66,6 +86,16 @@ export interface Job {
   postedDate?: number;
   employmentType?: string;
   source?: string;
+  
+  // Structured Requirements
+  structuredRequirements?: JobRequirement[];
+  skills?: string[];
+  requiredSkills?: string[];
+  preferredSkills?: string[];
+  responsibilities?: string[];
+  industry?: string;
+  educationRequirements?: string;
+  certifications?: string[];
 }
 
 export interface SavedJob {
@@ -81,6 +111,7 @@ export interface JobMatch {
   userId: string;
   jobId: string;
   matchScore: number;
+  confidenceScore?: number; // 0-100 based on evidence coverage
   matchExplanation: string;
   matchedSkills: string[];
   skillsMatch: string;
@@ -97,9 +128,9 @@ export interface JobMatch {
 }
 
 export interface Application {
-  id: string;
-  userId: string;
-  jobId: string;
+  id: string; // Generated unique ID
+  userId: string; // Indexed field
+  jobId: string; // Indexed field
   status: JobStatus;
   datePrepared: number;
   dateApplied?: number;

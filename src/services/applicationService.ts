@@ -25,29 +25,30 @@ export const applicationService = {
     }
   },
   
+  // We now fetch by querying jobId and userId instead of using a composite doc ID
   getApplication: async (userId: string, jobId: string): Promise<Application | null> => {
-    const docId = `${userId}_${jobId}`;
     if (isFirebaseConfigured() && db) {
-      const docSnap = await getDoc(doc(db, 'applications', docId));
-      if (docSnap.exists()) {
-        return docSnap.data() as Application;
+      const q = query(collection(db, 'applications'), where('userId', '==', userId), where('jobId', '==', jobId));
+      const snapshot = await getDocs(q);
+      if (!snapshot.empty) {
+        return snapshot.docs[0].data() as Application;
       }
       return null;
     } else {
-      return getLocalApps().find(a => a.id === docId) || null;
+      return getLocalApps().find(a => a.userId === userId && a.jobId === jobId) || null;
     }
   },
   
   createOrUpdateApplication: async (userId: string, jobId: string, data: Partial<Application>): Promise<Application> => {
-    const docId = `${userId}_${jobId}`;
     const existing = await applicationService.getApplication(userId, jobId);
     
     let app: Application;
     if (existing) {
       app = { ...existing, ...data };
     } else {
+      const newId = crypto.randomUUID(); // Generated unique ID
       app = {
-        id: docId,
+        id: newId,
         userId,
         jobId,
         status: data.status || 'PREPARING',
@@ -57,10 +58,10 @@ export const applicationService = {
     }
 
     if (isFirebaseConfigured() && db) {
-      await setDoc(doc(db, 'applications', docId), app);
+      await setDoc(doc(db, 'applications', app.id), app);
     } else {
       const apps = getLocalApps();
-      const idx = apps.findIndex(a => a.id === docId);
+      const idx = apps.findIndex(a => a.id === app.id);
       if (idx >= 0) apps[idx] = app;
       else apps.push(app);
       setLocalApps(apps);
@@ -69,25 +70,22 @@ export const applicationService = {
   },
   
   updateApplicationStatus: async (userId: string, jobId: string, status: JobStatus): Promise<void> => {
-    const docId = `${userId}_${jobId}`;
     const updates = { status, ...(status === 'APPLIED' ? { dateApplied: Date.now() } : {}) };
     
-    if (isFirebaseConfigured() && db) {
-      const docSnap = await getDoc(doc(db, 'applications', docId));
-      if (docSnap.exists()) {
-        await updateDoc(doc(db, 'applications', docId), updates);
+    const existing = await applicationService.getApplication(userId, jobId);
+    if (existing) {
+      if (isFirebaseConfigured() && db) {
+        await updateDoc(doc(db, 'applications', existing.id), updates);
       } else {
-        await applicationService.createOrUpdateApplication(userId, jobId, updates);
+        const apps = getLocalApps();
+        const idx = apps.findIndex(a => a.id === existing.id);
+        if (idx >= 0) {
+          apps[idx] = { ...apps[idx], ...updates };
+          setLocalApps(apps);
+        }
       }
     } else {
-      const apps = getLocalApps();
-      const idx = apps.findIndex(a => a.id === docId);
-      if (idx >= 0) {
-        apps[idx] = { ...apps[idx], ...updates };
-        setLocalApps(apps);
-      } else {
-        await applicationService.createOrUpdateApplication(userId, jobId, updates);
-      }
+      await applicationService.createOrUpdateApplication(userId, jobId, updates);
     }
   }
 };

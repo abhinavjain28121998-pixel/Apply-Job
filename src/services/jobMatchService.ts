@@ -15,7 +15,7 @@ const setLocalMatches = (matches: JobMatch[]) => {
 
 export const jobMatchService = {
   getMatch: async (userId: string, jobId: string): Promise<JobMatch | null> => {
-    const docId = `${userId}_${jobId}`;
+    const docId = `${userId}_${jobId}`; // Kept unique by composite because user can only have one match report per job
     if (isFirebaseConfigured() && db) {
       const docSnap = await getDoc(doc(db, 'job_matches', docId));
       if (docSnap.exists()) {
@@ -28,7 +28,7 @@ export const jobMatchService = {
   },
   
   saveMatch: async (match: JobMatch): Promise<void> => {
-    const docId = `${match.userId}_${match.jobId}`;
+    const docId = `${match.userId}_${match.jobId}`; // Kept unique by composite because user can only have one match report per job
     match.id = docId;
     if (isFirebaseConfigured() && db) {
       await setDoc(doc(db, 'job_matches', docId), match);
