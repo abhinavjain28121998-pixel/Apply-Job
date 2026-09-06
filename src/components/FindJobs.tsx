@@ -14,11 +14,12 @@ export default function FindJobs() {
   const { user } = useAuth();
   const [filters, setFilters] = useState<SearchFilters>({ query: '', location: '', workMode: '' });
   const [searching, setSearching] = useState(false);
-  const [results, setResults] = useState<Partial<Job>[]>([]);
+  const [results, setResults] = useState<Job[]>([]);
+  const [matchesMap, setMatchesMap] = useState<Map<string, any>>(new Map());
   const [savedJobIds, setSavedJobIds] = useState<Set<string>>(new Set());
   const [analyzingIds, setAnalyzingIds] = useState<Set<string>>(new Set());
     const [sortBy, setSortBy] = useState<'MATCH' | 'RECENT' | 'SALARY'>('MATCH');
-  const [selectedJob, setSelectedJob] = useState<Partial<Job> | null>(null);
+  const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   
   const [providerStatus, setProviderStatus] = useState<ProviderStatus | null>(null);
   const [page, setPage] = useState(1);
@@ -33,8 +34,10 @@ export default function FindJobs() {
       savedJobsList.forEach(sj => savedIds.add(sj.jobId));
       setSavedJobIds(savedIds);
       
-      // We don't fetch all matches initially to save bandwidth, or we could if we had an endpoint.
-      // For now, let's assume we fetch them when requested, but let's just leave the map empty initially.
+      const matches = await jobMatchService.getMatchesForUser(user.uid);
+      const matchMap = new Map();
+      matches.forEach(m => matchMap.set(m.jobId, m));
+      setMatchesMap(matchMap);
     };
     fetchUserData();
   }, [user]);
@@ -147,7 +150,7 @@ export default function FindJobs() {
     return `${Math.floor(hours / 24)}d ago`;
   };
 
-  const sortedResults = getSortedResults().map(job => savedJobs.has(job.id!) ? { ...job, ...savedJobs.get(job.id!) } : job);
+  const sortedResults = getSortedResults();
 
   return (
     <div className="p-8 max-w-7xl mx-auto flex flex-col md:flex-row gap-8">

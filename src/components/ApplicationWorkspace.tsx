@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+// Used state variables for readiness and reasonsimport React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 import { Job } from '../types';
@@ -20,7 +20,7 @@ export default function ApplicationWorkspace() {
   const [match, setMatch] = useState<JobMatch | null>(null);
   const [app, setApp] = useState<Application | null>(null);
   
-  const [profile, setProfile] = useState<any>(null);
+  const [userProfile, setUserProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   
   const [coverLetter, setCoverLetter] = useState('');
@@ -28,6 +28,8 @@ export default function ApplicationWorkspace() {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [improvements, setImprovements] = useState<any[]>([]);
   const [generating, setGenerating] = useState<'coverLetter' | 'answers' | 'tailor' | 'analysis' | null>(null);
+  const [readiness, setReadiness] = useState(0);
+  const [reasons, setReasons] = useState<string[]>([]);
 
   useEffect(() => {
     const fetchJob = async () => {
@@ -39,8 +41,10 @@ export default function ApplicationWorkspace() {
         if (savedJobData) {
           const matchData = await jobMatchService.getMatch(user.uid, id);
           const appData = await applicationService.getApplication(user.uid, id);
+          const userProfile = await resumeService.getProfile(user.uid);
+          setUserProfile(userProfile);
           
-          // Construct a UI friendly job object
+          
           setSavedJob(savedJobData);
           setMatch(matchData);
           setApp(appData);
@@ -58,6 +62,14 @@ export default function ApplicationWorkspace() {
     };
     fetchJob();
   }, [id, user]);
+
+  useEffect(() => {
+    if (savedJob?.job) {
+      const res = calculateApplicationReadiness(savedJob.job, match, app, userProfile);
+      setReadiness(res.score);
+      setReasons(res.reasons);
+    }
+  }, [savedJob, match, app, userProfile]);
 
   const saveAppState = async (updates: Partial<Application>) => {
     if (!id || !user) return;
