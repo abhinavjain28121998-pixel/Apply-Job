@@ -132,6 +132,8 @@ export interface JobMatch {
 }
 
 export interface Application {
+  createdAt?: number;
+  updatedAt?: number;
   id: string; // Generated unique ID
   userId: string; // Indexed field
   jobId: string; // Indexed field

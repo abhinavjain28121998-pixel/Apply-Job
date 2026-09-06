@@ -24,6 +24,7 @@ export default function ApplicationWorkspace() {
   const [loading, setLoading] = useState(true);
   
   const [coverLetter, setCoverLetter] = useState('');
+  const [tailoredCv, setTailoredCv] = useState('');
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [improvements, setImprovements] = useState<any[]>([]);
   const [generating, setGenerating] = useState<'coverLetter' | 'answers' | 'tailor' | 'analysis' | null>(null);
@@ -167,7 +168,7 @@ export default function ApplicationWorkspace() {
       });
       if (res.ok) {
         const data = await res.json();
-        const updates: Partial<Job> = {
+        const updates: Partial<Application> = {
           bulletImprovements: data.bulletImprovements,
           tailoredCv: data.tailoredCv,
           updatedSummary: data.updatedSummary,
@@ -414,11 +415,13 @@ export default function ApplicationWorkspace() {
                           const next = [...improvements];
                           next[idx].status = 'ACCEPTED';
                           setImprovements(next);
+                          saveAppState({ bulletImprovements: next });
                         }} className="px-3 py-1 bg-green-100 text-green-700 text-xs font-bold rounded hover:bg-green-200">Accept</button>
                         <button onClick={() => {
                           const next = [...improvements];
                           next[idx].status = 'REJECTED';
                           setImprovements(next);
+                          saveAppState({ bulletImprovements: next });
                         }} className="px-3 py-1 bg-slate-100 text-slate-600 text-xs font-bold rounded hover:bg-slate-200">Reject</button>
                       </div>
                     </div>
@@ -441,6 +444,7 @@ export default function ApplicationWorkspace() {
                   <button onClick={() => {
                     const next = improvements.map(i => ({...i, status: 'ACCEPTED' as const}));
                     setImprovements(next);
+                    saveAppState({ bulletImprovements: next });
                   }} className="w-full py-2 bg-indigo-50 text-indigo-700 rounded-lg font-medium hover:bg-indigo-100 text-sm mt-4">
                     Accept All Suggestions
                   </button>

@@ -44,7 +44,7 @@ export const applicationService = {
     
     let app: Application;
     if (existing) {
-      app = { ...existing, ...data };
+      app = { ...existing, ...data, updatedAt: Date.now() };
     } else {
       const newId = crypto.randomUUID(); // Generated unique ID
       app = {
@@ -52,6 +52,8 @@ export const applicationService = {
         userId,
         jobId,
         status: data.status || 'PREPARING',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
         datePrepared: data.datePrepared || Date.now(),
         ...data
       } as Application;

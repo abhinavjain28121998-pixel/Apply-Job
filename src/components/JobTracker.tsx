@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../AuthContext';
-import { Job, Application } from '../types';
 import { jobService } from '../services/jobService';
 import { applicationService } from '../services/applicationService';
 import { jobMatchService } from '../services/jobMatchService';
@@ -165,7 +164,7 @@ export default function JobTracker() {
                       value={app?.status || 'SAVED'}
                       onChange={async (e) => {
                         const newStatus = e.target.value;
-                        await applicationService.updateApplicationStatus(user.uid, saved.jobId, newStatus as any);
+                        await applicationService.updateApplicationStatus(user.uid, saved.jobId, newStatus as import("../types").JobStatus);
                         fetchJobs();
                       }}
                       className="text-sm font-medium text-slate-700 bg-slate-100 px-2 py-1 rounded-md border-none outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"

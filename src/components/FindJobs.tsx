@@ -17,8 +17,7 @@ export default function FindJobs() {
   const [results, setResults] = useState<Partial<Job>[]>([]);
   const [savedJobIds, setSavedJobIds] = useState<Set<string>>(new Set());
   const [analyzingIds, setAnalyzingIds] = useState<Set<string>>(new Set());
-  const [baseCv, setBaseCv] = useState<string>('');
-  const [sortBy, setSortBy] = useState<'MATCH' | 'RECENT' | 'SALARY'>('MATCH');
+    const [sortBy, setSortBy] = useState<'MATCH' | 'RECENT' | 'SALARY'>('MATCH');
   const [selectedJob, setSelectedJob] = useState<Partial<Job> | null>(null);
   
   const [providerStatus, setProviderStatus] = useState<ProviderStatus | null>(null);
@@ -105,10 +104,7 @@ export default function FindJobs() {
           return next;
         });
 
-        // Ensure job is saved if analyzed
-        if (!savedJobIds.has(job.id)) {
-          await saveJob(job);
-        }
+        
       }
     } catch (err) {
       console.error(err);
@@ -196,7 +192,7 @@ export default function FindJobs() {
               <label className="block text-sm font-medium text-slate-700 mb-1">Work Mode</label>
               <select 
                 value={filters.workMode}
-                onChange={e => setFilters({...filters, workMode: e.target.value as any})}
+                onChange={e => setFilters({...filters, workMode: e.target.value})}
                 className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-sm bg-white"
               >
                 <option value="">Any Work Mode</option>
@@ -249,7 +245,7 @@ export default function FindJobs() {
               <span className="text-sm font-medium text-slate-500">Sort by:</span>
               <select 
                 value={sortBy} 
-                onChange={e => setSortBy(e.target.value as any)}
+                onChange={e => setSortBy(e.target.value as "MATCH" | "RECENT" | "SALARY")}
                 className="bg-white border border-slate-300 rounded-lg text-sm px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               >
                 <option value="MATCH">Best Match</option>

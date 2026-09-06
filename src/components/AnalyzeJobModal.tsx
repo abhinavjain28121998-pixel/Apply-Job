@@ -55,7 +55,7 @@ export default function AnalyzeJobModal({ onClose, onJobAdded }: { onClose: () =
         source: 'Manual'
       };
       
-      await jobService.saveJob(user.uid, jobData as any);
+      await jobService.saveJob(user.uid, jobData as Job);
       
       // Save the match
       const { jobMatchService } = await import('../services/jobMatchService');
