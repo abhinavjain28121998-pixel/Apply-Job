@@ -5,16 +5,20 @@ export const linkedinAuthService = {
   /**
    * Fetches LinkedIn integration status and connection details.
    */
-  async getStatus(userId?: string): Promise<LinkedInStatusResponse> {
+  async getStatus(token: string): Promise<LinkedInStatusResponse> {
     try {
-      const url = userId ? `/api/linkedin/status?userId=${encodeURIComponent(userId)}` : '/api/linkedin/status';
-      const res = await fetch(url);
+      const res = await fetch('/api/linkedin/status', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
       if (!res.ok) {
         throw new Error(`Status check failed: ${res.status}`);
       }
       return await res.json();
     } catch (e: any) {
       return {
+        enabled: false,
         configured: false,
         connected: false,
         jobSearchApiAvailable: false,
@@ -28,9 +32,15 @@ export const linkedinAuthService = {
   /**
    * Requests authorization URL from server.
    */
-  async getAuthStart(userId?: string): Promise<{ configured: boolean; authUrl?: string; state?: string; error?: string }> {
-    const url = userId ? `/api/linkedin/auth/start?userId=${encodeURIComponent(userId)}` : '/api/linkedin/auth/start';
-    const res = await fetch(url);
+  async getAuthStart(token: string, redirectPath?: string): Promise<{ configured: boolean; authUrl?: string; state?: string; error?: string }> {
+    const url = redirectPath 
+      ? `/api/linkedin/auth/start?redirectPath=${encodeURIComponent(redirectPath)}` 
+      : '/api/linkedin/auth/start';
+    const res = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
     return await res.json();
   },
 
@@ -65,6 +75,15 @@ export const linkedinAuthService = {
       };
 
       const handleMessage = (event: MessageEvent) => {
+        // Validate target origin on receiving frontend
+        const trustedOrigins = [
+          window.location.origin
+        ];
+        if (!trustedOrigins.includes(event.origin)) {
+          console.warn('Blocked message from untrusted origin:', event.origin);
+          return;
+        }
+
         if (!event.data || typeof event.data !== 'object') return;
 
         if (event.data.type === 'LINKEDIN_AUTH_SUCCESS') {
@@ -98,12 +117,18 @@ export const linkedinAuthService = {
   /**
    * Revokes LinkedIn connection for user.
    */
-  async disconnect(userId: string): Promise<void> {
-    await fetch('/api/linkedin/auth/revoke', {
+  async disconnect(token: string): Promise<void> {
+    const res = await fetch('/api/linkedin/disconnect', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId })
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      }
     });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || 'Failed to disconnect LinkedIn account');
+    }
   },
 
   /**

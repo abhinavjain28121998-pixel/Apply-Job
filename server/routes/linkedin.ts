@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { createOAuthState, validateAndConsumeOAuthState } from '../oauthState.js';
+import { createOAuthState, validateAndConsumeOAuthState, isValidInternalRedirectPath } from '../oauthState.js';
 import { linkedinConnectionService } from '../services/linkedinConnectionService.js';
 import { buildLinkedInJobsUrl, isValidLinkedInUrl, linkedinJobDiscoveryService } from '../../src/services/linkedinService.js';
 import { LinkedInConnection, LinkedInStatusResponse } from '../../src/types.js';
@@ -8,6 +8,53 @@ import { requireAuth } from '../auth.js';
 export const linkedinRouter = Router();
 
 const DEFAULT_SCOPES = 'openid profile email';
+
+/**
+ * Sanitizes and trims any incoming parameter string to prevent excessively large inputs or HTML injection.
+ */
+function sanitizeInputString(val: any, maxLength: number, fieldName: string): string | undefined {
+  if (val === undefined || val === null) return undefined;
+  if (typeof val !== 'string') {
+    throw new Error(`Invalid ${fieldName}: must be a string`);
+  }
+  const trimmed = val.trim();
+  if (trimmed.length > maxLength) {
+    throw new Error(`Invalid ${fieldName}: length exceeds maximum of ${maxLength} characters`);
+  }
+  // Remove possible script or HTML tags
+  return trimmed.replace(/[<>]/g, '');
+}
+
+/**
+ * Performs strict structural and content validation on search filters.
+ */
+function validateAndSanitizeSearchCriteria(criteria: any): any {
+  if (!criteria || typeof criteria !== 'object') {
+    throw new Error('Invalid criteria payload: expected an object');
+  }
+  
+  const sanitized: any = {};
+  
+  if (criteria.keywords !== undefined) sanitized.keywords = sanitizeInputString(criteria.keywords, 150, 'keywords');
+  if (criteria.jobTitle !== undefined) sanitized.jobTitle = sanitizeInputString(criteria.jobTitle, 150, 'jobTitle');
+  if (criteria.location !== undefined) sanitized.location = sanitizeInputString(criteria.location, 150, 'location');
+  if (criteria.experience !== undefined) sanitized.experience = sanitizeInputString(criteria.experience, 100, 'experience');
+  if (criteria.experienceLevel !== undefined) sanitized.experienceLevel = sanitizeInputString(criteria.experienceLevel, 100, 'experienceLevel');
+  if (criteria.workMode !== undefined) sanitized.workMode = sanitizeInputString(criteria.workMode, 100, 'workMode');
+  if (criteria.remote !== undefined) {
+    if (typeof criteria.remote === 'boolean') {
+      sanitized.remote = criteria.remote;
+    } else {
+      sanitized.remote = sanitizeInputString(criteria.remote, 50, 'remote');
+    }
+  }
+  if (criteria.jobType !== undefined) sanitized.jobType = sanitizeInputString(criteria.jobType, 100, 'jobType');
+  if (criteria.employmentType !== undefined) sanitized.employmentType = sanitizeInputString(criteria.employmentType, 100, 'employmentType');
+  if (criteria.sortBy !== undefined) sanitized.sortBy = sanitizeInputString(criteria.sortBy, 50, 'sortBy');
+  if (criteria.query !== undefined) sanitized.query = sanitizeInputString(criteria.query, 150, 'query');
+  
+  return sanitized;
+}
 
 /**
  * Derives the exact OAuth callback URI.
@@ -105,7 +152,7 @@ linkedinRouter.get('/status', requireAuth, async (req: Request, res: Response) =
 
     res.json(response);
   } catch (error: any) {
-    console.error('Failed to get LinkedIn status:', error);
+    console.error('Failed to get LinkedIn status:', error?.message);
     res.status(500).json({ error: 'Failed to retrieve LinkedIn integration status' });
   }
 });
@@ -143,9 +190,16 @@ linkedinRouter.get('/auth/start', requireAuth, async (req: Request, res: Respons
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized: User session is missing' });
     }
-    const redirectPath = (req.query.redirectPath as string) || '/find-jobs';
+
+    // Input validation for redirectPath
+    const requestedRedirectPath = (req.query.redirectPath as string) || '/find-jobs';
+    const sanitizedRedirectPath = sanitizeInputString(requestedRedirectPath, 250, 'redirectPath') || '/find-jobs';
+    if (!isValidInternalRedirectPath(sanitizedRedirectPath)) {
+      return res.status(400).json({ error: 'Invalid redirect path provided. Open redirects are strictly prohibited.' });
+    }
+
     const redirectUri = getRedirectUri(req);
-    const state = await createOAuthState(userId, redirectPath);
+    const state = await createOAuthState(userId, sanitizedRedirectPath);
     const scopes = process.env.LINKEDIN_SCOPES || DEFAULT_SCOPES;
 
     const authUrlObj = new URL('https://www.linkedin.com/oauth/v2/authorization');
@@ -163,15 +217,11 @@ linkedinRouter.get('/auth/start', requireAuth, async (req: Request, res: Respons
       redirectUri
     });
   } catch (error: any) {
-    console.error('Failed to start LinkedIn OAuth flow:', error);
+    console.error('Failed to start LinkedIn OAuth flow:', error?.message);
     res.status(500).json({ error: 'Failed to initiate LinkedIn authorization' });
   }
 });
 
-/**
- * GET /api/linkedin/auth/callback & /api/linkedin/auth/callback/
- * Server-side authorization code exchange with CSRF protection and popup postMessage handler.
- */
 /**
  * Helper to determine the trusted origin for postMessage popup security.
  */
@@ -185,7 +235,7 @@ function getAppOrigin(req: Request): string {
 }
 
 /**
- * GET /api/linkedin/auth/callback & /api/linkedin/auth/callback/
+ * GET /api/linkedin/auth/callback
  * Server-side authorization code exchange with CSRF protection and popup postMessage handler.
  */
 const callbackHandler = async (req: Request, res: Response) => {
@@ -244,6 +294,7 @@ const callbackHandler = async (req: Request, res: Response) => {
     }));
   }
 
+  // Atomically validate and consume the state token
   const validation = await validateAndConsumeOAuthState(state);
   if (!validation.valid) {
     return res.status(400).send(renderPopupScript({ 
@@ -280,8 +331,7 @@ const callbackHandler = async (req: Request, res: Response) => {
     });
 
     if (!tokenRes.ok) {
-      const errorText = await tokenRes.text();
-      console.error('LinkedIn token exchange failed:', tokenRes.status, errorText);
+      console.error('LinkedIn token exchange failed with status:', tokenRes.status);
       return res.status(200).send(renderPopupScript({
         type: 'LINKEDIN_AUTH_ERROR',
         error: `LinkedIn rejected code exchange: ${tokenRes.status}`
@@ -302,8 +352,8 @@ const callbackHandler = async (req: Request, res: Response) => {
       if (userinfoRes.ok) {
         profileData = await userinfoRes.json();
       }
-    } catch (profileErr) {
-      console.warn('Could not fetch LinkedIn profile details:', profileErr);
+    } catch (profileErr: any) {
+      console.warn('Could not fetch LinkedIn profile details:', profileErr?.message);
     }
 
     const userId = validation.userId;
@@ -333,10 +383,10 @@ const callbackHandler = async (req: Request, res: Response) => {
       connection
     }));
   } catch (err: any) {
-    console.error('LinkedIn OAuth callback handling exception:', err);
+    console.error('LinkedIn OAuth callback handling exception:', err?.message);
     return res.status(500).send(renderPopupScript({
       type: 'LINKEDIN_AUTH_ERROR',
-      error: err?.message || 'Unexpected failure during OAuth callback processing.'
+      error: 'Unexpected failure during OAuth callback processing.'
     }));
   }
 };
@@ -358,7 +408,7 @@ linkedinRouter.post('/auth/revoke', requireAuth, async (req: Request, res: Respo
     await linkedinConnectionService.revokeConnection(userId);
     res.json({ success: true, message: 'LinkedIn connection revoked successfully' });
   } catch (error: any) {
-    console.error('Failed to revoke LinkedIn connection:', error);
+    console.error('Failed to revoke LinkedIn connection:', error?.message);
     res.status(500).json({ error: 'Failed to revoke LinkedIn connection' });
   }
 });
@@ -377,7 +427,7 @@ linkedinRouter.post('/disconnect', requireAuth, async (req: Request, res: Respon
     await linkedinConnectionService.revokeConnection(userId);
     res.json({ success: true, message: 'LinkedIn connection revoked successfully' });
   } catch (error: any) {
-    console.error('Failed to disconnect LinkedIn:', error);
+    console.error('Failed to disconnect LinkedIn:', error?.message);
     res.status(500).json({ error: 'Failed to disconnect LinkedIn' });
   }
 });
@@ -387,9 +437,10 @@ linkedinRouter.post('/disconnect', requireAuth, async (req: Request, res: Respon
  * Generates official LinkedIn Search Destination URL based on user criteria.
  * Uses URLSearchParams, zero scraping, and zero third-party API credentials.
  */
-linkedinRouter.post('/search', async (req: Request, res: Response) => {
+linkedinRouter.post('/search', requireAuth, async (req: Request, res: Response) => {
   try {
-    const criteria = req.body || {};
+    const rawCriteria = req.body || {};
+    const criteria = validateAndSanitizeSearchCriteria(rawCriteria);
     const discoveryResult = await linkedinJobDiscoveryService.discoverJobs(criteria);
 
     return res.json({
@@ -397,7 +448,7 @@ linkedinRouter.post('/search', async (req: Request, res: Response) => {
       provider: 'linkedin',
     });
   } catch (error: any) {
-    console.error('LinkedIn search error:', error);
+    console.error('LinkedIn search error:', error?.message);
     res.status(400).json({ error: error?.message || 'Failed to process LinkedIn search' });
   }
 });
@@ -406,20 +457,24 @@ linkedinRouter.post('/search', async (req: Request, res: Response) => {
  * GET /api/linkedin/jobs/:id
  * Generates direct view link to the official LinkedIn job posting.
  */
-linkedinRouter.get('/jobs/:id', async (req: Request, res: Response) => {
+linkedinRouter.get('/jobs/:id', requireAuth, async (req: Request, res: Response) => {
   try {
-    const cleanId = req.params.id.replace(/^li_/, '');
+    const idParam = req.params.id;
+    if (!idParam || typeof idParam !== 'string' || idParam.length > 50 || !/^[a-zA-Z0-9_\-]+$/.test(idParam)) {
+      return res.status(400).json({ error: 'Invalid Job ID format' });
+    }
+    const cleanId = idParam.replace(/^li_/, '');
     const officialUrl = `https://www.linkedin.com/jobs/view/${encodeURIComponent(cleanId)}`;
 
     return res.json({
-      id: req.params.id,
+      id: idParam,
       url: officialUrl,
       source: 'LinkedIn',
       message: 'Job details are viewed directly on the official LinkedIn job posting page.'
     });
   } catch (error: any) {
-    console.error('LinkedIn get job details error:', error);
-    res.status(500).json({ error: error?.message || 'Failed to retrieve job details' });
+    console.error('LinkedIn get job details error:', error?.message);
+    res.status(500).json({ error: 'Failed to retrieve job details' });
   }
 });
 
@@ -427,15 +482,18 @@ linkedinRouter.get('/jobs/:id', async (req: Request, res: Response) => {
  * POST /api/linkedin/search-url
  * Validates criteria and returns official LinkedIn Jobs URL.
  */
-linkedinRouter.post('/search-url', (req: Request, res: Response) => {
+linkedinRouter.post('/search-url', requireAuth, (req: Request, res: Response) => {
   try {
-    const criteria = req.body || {};
+    const rawCriteria = req.body || {};
+    const criteria = validateAndSanitizeSearchCriteria(rawCriteria);
     const url = buildLinkedInJobsUrl(criteria);
     if (!isValidLinkedInUrl(url)) {
       return res.status(400).json({ error: 'Invalid LinkedIn URL generated' });
     }
     res.json({ url, criteria });
   } catch (error: any) {
+    console.error('LinkedIn search URL generation error:', error?.message);
     res.status(400).json({ error: error?.message || 'Failed to generate LinkedIn search URL' });
   }
 });
+

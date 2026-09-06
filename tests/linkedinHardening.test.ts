@@ -57,6 +57,13 @@ describe('LinkedIn Integration Production Hardening', () => {
             get: mockGet,
             delete: mockDelete
           })
+        }),
+        runTransaction: vi.fn().mockImplementation(async (callback) => {
+          const transaction = {
+            get: vi.fn().mockImplementation(async () => mockGet()),
+            delete: vi.fn().mockImplementation(() => mockDelete())
+          };
+          return callback(transaction);
         })
       } as any;
 
@@ -91,6 +98,13 @@ describe('LinkedIn Integration Production Hardening', () => {
             get: mockGet,
             delete: mockDelete
           })
+        }),
+        runTransaction: vi.fn().mockImplementation(async (callback) => {
+          const transaction = {
+            get: vi.fn().mockImplementation(async () => mockGet()),
+            delete: vi.fn().mockImplementation(() => mockDelete())
+          };
+          return callback(transaction);
         })
       } as any;
 
@@ -112,6 +126,12 @@ describe('LinkedIn Integration Production Hardening', () => {
           doc: vi.fn().mockReturnValue({
             get: mockGet
           })
+        }),
+        runTransaction: vi.fn().mockImplementation(async (callback) => {
+          const transaction = {
+            get: vi.fn().mockImplementation(async () => mockGet())
+          };
+          return callback(transaction);
         })
       } as any;
 

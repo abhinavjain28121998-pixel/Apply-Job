@@ -83,9 +83,11 @@ export default function FindJobs() {
   const [connectingLinkedIn, setConnectingLinkedIn] = useState(false);
   const [connectMessage, setConnectMessage] = useState<string | null>(null);
 
-  const refreshLinkedInStatus = async (uid?: string) => {
+  const refreshLinkedInStatus = async () => {
     try {
-      const status = await linkedinAuthService.getStatus(uid || user?.uid);
+      const token = await getToken();
+      if (!token) return;
+      const status = await linkedinAuthService.getStatus(token);
       setLinkedInStatus(status);
     } catch (e) {
       console.warn('Failed to load LinkedIn status:', e);
@@ -124,7 +126,7 @@ export default function FindJobs() {
       }
 
       // Check LinkedIn Integration Status
-      refreshLinkedInStatus(user.uid);
+      refreshLinkedInStatus();
     };
     fetchUserData();
   }, [user]);
@@ -134,7 +136,12 @@ export default function FindJobs() {
     setConnectingLinkedIn(true);
     setConnectMessage(null);
     try {
-      const startRes = await linkedinAuthService.getAuthStart(user.uid);
+      const token = await getToken();
+      if (!token) {
+        setConnectMessage('Failed to authenticate. Please try again.');
+        return;
+      }
+      const startRes = await linkedinAuthService.getAuthStart(token, '/find-jobs');
       if (!startRes.configured || !startRes.authUrl) {
         setConnectMessage(
           startRes.error ||
@@ -145,7 +152,7 @@ export default function FindJobs() {
 
       await linkedinAuthService.openAuthPopup(startRes.authUrl);
       setConnectMessage('Successfully connected your LinkedIn profile via OpenID Connect!');
-      await refreshLinkedInStatus(user.uid);
+      await refreshLinkedInStatus();
       setTimeout(() => setConnectMessage(null), 4000);
     } catch (err: any) {
       const msg = err?.message || 'LinkedIn authorization was canceled or failed.';
@@ -164,8 +171,10 @@ export default function FindJobs() {
   const handleDisconnectLinkedIn = async () => {
     if (!user) return;
     try {
-      await linkedinAuthService.disconnect(user.uid);
-      await refreshLinkedInStatus(user.uid);
+      const token = await getToken();
+      if (!token) return;
+      await linkedinAuthService.disconnect(token);
+      await refreshLinkedInStatus();
       setConnectMessage('LinkedIn account disconnected.');
       setTimeout(() => setConnectMessage(null), 3000);
     } catch (e: any) {

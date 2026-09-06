@@ -11,8 +11,31 @@ interface OAuthStateRecord {
 
 const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
-// In-memory fallback ONLY if Firestore is unavailable (e.g. testing without firebase initialization)
+// In-memory fallback ONLY if in test or development environment and Firestore is unavailable
 const memoryStore = new Map<string, OAuthStateRecord>();
+
+/**
+ * Validates that a redirect path is internal and safe from open redirects.
+ */
+export function isValidInternalRedirectPath(path: string | undefined): boolean {
+  if (!path) return true;
+  const trimmed = path.trim();
+  if (trimmed === '') return true;
+  
+  // Must start with exactly one '/' and not be followed by another slash or backslash
+  if (!trimmed.startsWith('/') || trimmed.startsWith('//') || trimmed.startsWith('/\\')) {
+    return false;
+  }
+  
+  // Must not contain protocol schemes, backslashes, or colons
+  if (trimmed.includes(':') || trimmed.includes('\\')) {
+    return false;
+  }
+  
+  // Strictly allow alpha-numeric, slashes, dashes, underscores, and basic query parameter chars
+  const pathRegex = /^\/[a-zA-Z0-9\-_/?&=]*$/;
+  return pathRegex.test(trimmed);
+}
 
 /**
  * Periodically purge states that have exceeded their TTL.
@@ -52,6 +75,10 @@ export async function createOAuthState(userId: string, redirectPath?: string): P
     throw new Error('An OAuth connection must always belong to an authenticated Firebase user.');
   }
 
+  if (redirectPath && !isValidInternalRedirectPath(redirectPath)) {
+    throw new Error('Invalid redirect path provided. Open redirects are strictly prohibited.');
+  }
+
   // Purge asynchronously without blocking the request
   purgeExpiredStates().catch(() => {});
 
@@ -70,6 +97,11 @@ export async function createOAuthState(userId: string, redirectPath?: string): P
   if (firestore) {
     await firestore.collection('oauth_states').doc(randomBytes).set(record);
   } else {
+    // Only allow in-memory fallback in explicit development/testing environments
+    const isDevOrTest = process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development';
+    if (!isDevOrTest) {
+      throw new Error('Database is unavailable and in-memory fallback is disabled in production.');
+    }
     memoryStore.set(randomBytes, record);
   }
 
@@ -77,7 +109,7 @@ export async function createOAuthState(userId: string, redirectPath?: string): P
 }
 
 /**
- * Validates a state token and consumes it (one-time use to prevent replay attacks).
+ * Validates a state token and consumes it atomically (one-time use to prevent replay attacks).
  */
 export async function validateAndConsumeOAuthState(state: string | undefined): Promise<{ 
   valid: boolean; 
@@ -93,41 +125,67 @@ export async function validateAndConsumeOAuthState(state: string | undefined): P
   purgeExpiredStates().catch(() => {});
 
   const firestore = getFirebaseFirestore();
-  let record: OAuthStateRecord | undefined;
 
   if (firestore) {
     try {
       const docRef = firestore.collection('oauth_states').doc(state);
-      const docSnap = await docRef.get();
-      if (docSnap.exists) {
-        record = docSnap.data() as OAuthStateRecord;
-        // Consume immediately (delete from Firestore to prevent replay attack)
-        await docRef.delete();
-      }
+      
+      const result = await firestore.runTransaction(async (transaction) => {
+        const docSnap = await transaction.get(docRef);
+        if (!docSnap.exists) {
+          return { valid: false, reason: 'Invalid or expired state parameter (CSRF protection failed)' };
+        }
+        
+        const record = docSnap.data() as OAuthStateRecord;
+        
+        // Delete the record atomically within the transaction (single-use / replay protection)
+        transaction.delete(docRef);
+        
+        if (Date.now() > record.expiresAt) {
+          return { valid: false, reason: 'State parameter has expired' };
+        }
+
+        if (record.redirectPath && !isValidInternalRedirectPath(record.redirectPath)) {
+          return { valid: false, reason: 'Malicious redirect path detected' };
+        }
+        
+        return {
+          valid: true,
+          userId: record.userId,
+          redirectPath: record.redirectPath
+        };
+      });
+      
+      return result;
     } catch (e: any) {
-      console.error('Error fetching/deleting state from Firestore:', e);
+      console.error('Error validating state atomically in Firestore:', e);
       return { valid: false, reason: 'Database error validating state parameter' };
     }
   } else {
-    record = memoryStore.get(state);
+    // Fail-closed check: Memory store is strictly blocked in production
+    const isDevOrTest = process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development';
+    if (!isDevOrTest) {
+      return { valid: false, reason: 'Security error: Persistent database is unavailable' };
+    }
+
+    const record = memoryStore.get(state);
     if (record) {
       memoryStore.delete(state);
+      if (Date.now() > record.expiresAt) {
+        return { valid: false, reason: 'State parameter has expired' };
+      }
+      if (record.redirectPath && !isValidInternalRedirectPath(record.redirectPath)) {
+        return { valid: false, reason: 'Malicious redirect path detected' };
+      }
+      return {
+        valid: true,
+        userId: record.userId,
+        redirectPath: record.redirectPath
+      };
     }
   }
 
-  if (!record) {
-    return { valid: false, reason: 'Invalid or expired state parameter (CSRF protection failed)' };
-  }
-
-  if (Date.now() > record.expiresAt) {
-    return { valid: false, reason: 'State parameter has expired' };
-  }
-
-  return {
-    valid: true,
-    userId: record.userId,
-    redirectPath: record.redirectPath
-  };
+  return { valid: false, reason: 'Invalid or expired state parameter (CSRF protection failed)' };
 }
 
 /**
@@ -151,4 +209,5 @@ export async function resetOAuthStatesForTesting(): Promise<void> {
   }
   memoryStore.clear();
 }
+
 
