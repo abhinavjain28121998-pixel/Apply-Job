@@ -4,45 +4,17 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import 'dotenv/config';
 import { getProvider, deduplicateJobs } from './server/providers.js';
+import { requireAuth } from './server/auth.js';
+import { rateLimit } from './server/rateLimit.js';
+import './server/types.js';
 
-async function startServer() {
+export function createApiApp() {
   const app = express();
-  const PORT = 3000;
 
   app.use(express.json({ limit: '5mb' }));
 
   // Check Gemini API key
   const ai = process.env.GEMINI_API_KEY ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }) : null;
-
-  
-  // Basic authentication middleware
-  const requireAuth = (req, res, next) => {
-    // In demo mode, we might want to bypass or allow any token
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: "Unauthorized. Missing or invalid Authorization header." });
-    }
-    next();
-  };
-
-  // Basic rate limiting middleware
-  const rateLimitMap = new Map();
-  const rateLimit = (req, res, next) => {
-    const ip = req.ip || req.connection.remoteAddress;
-    const now = Date.now();
-    const userLimits = rateLimitMap.get(ip) || [];
-    
-    // Clean up old requests (older than 1 minute)
-    const recentRequests = userLimits.filter(time => now - time < 60000);
-    
-    if (recentRequests.length >= 10) { // 10 requests per minute
-      return res.status(429).json({ error: "Too many requests. Please try again later." });
-    }
-    
-    recentRequests.push(now);
-    rateLimitMap.set(ip, recentRequests);
-    next();
-  };
 
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
@@ -367,6 +339,13 @@ Return a JSON object where keys are standard question identifiers and values are
     }
   });
 
+  return app;
+}
+
+export async function startServer() {
+  const app = createApiApp();
+  const PORT = 3000;
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
@@ -387,4 +366,6 @@ Return a JSON object where keys are standard question identifiers and values are
   });
 }
 
-startServer();
+if (process.env.NODE_ENV !== 'test') {
+  startServer();
+}
