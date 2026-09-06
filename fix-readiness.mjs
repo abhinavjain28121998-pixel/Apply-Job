@@ -1,4 +1,7 @@
-import { Job } from '../types';
+import fs from 'fs';
+let content = fs.readFileSync('src/services/applicationReadinessService.ts', 'utf8');
+
+content = `import { Job } from '../types';
 
 export const calculateApplicationReadiness = (job: Partial<Job>): { score: number, reasons: string[] } => {
   let score = 0;
@@ -41,3 +44,10 @@ export const calculateApplicationReadiness = (job: Partial<Job>): { score: numbe
 
   return { score, reasons };
 };
+`;
+fs.writeFileSync('src/services/applicationReadinessService.ts', content);
+
+let testContent = fs.readFileSync('tests/application.test.ts', 'utf8');
+testContent = testContent.replace(/\{ why: 'Because' \}/g, "{ why: 'Because' }, title: 'T', company: 'C', url: 'U'");
+fs.writeFileSync('tests/application.test.ts', testContent);
+

@@ -61,6 +61,16 @@ function Login() {
 function Layout({ children }: { children: React.ReactNode }) {
   const { user, logOut } = useAuth();
   const location = useLocation();
+  const [providerStatus, setProviderStatus] = React.useState<any>(null);
+  
+  React.useEffect(() => {
+    fetch('/api/provider/status')
+    .then(res => res.json())
+    .then(data => {
+       if (data && data.status) setProviderStatus(data.status);
+    })
+    .catch(console.error);
+  }, []);
   
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-900 font-sans flex overflow-hidden">
@@ -118,15 +128,21 @@ function Layout({ children }: { children: React.ReactNode }) {
             {location.pathname === '/' ? 'Dashboard' : location.pathname === '/find-jobs' ? 'Find Jobs' : location.pathname === '/tracker' ? 'Job Tracker' : 'My Profile & CV'}
           </h1>
           <div className="flex items-center gap-4">
-            {user?.isDemo && (
+            {providerStatus?.status === 'DEMO' && (
               <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1 rounded-full font-medium">
                 Demo Mode &middot; Mock Jobs
               </div>
             )}
-            {!user?.isDemo && (
+            {providerStatus?.status === 'CONNECTED' && (
               <div className="flex items-center gap-2 text-sm text-slate-500 bg-slate-100 px-3 py-1.5 rounded-full">
                 <span className="w-2 h-2 bg-green-500 rounded-full"></span>
                 Live Provider &middot; Connected
+              </div>
+            )}
+            {providerStatus?.status === 'NOT_CONFIGURED' && (
+              <div className="flex items-center gap-2 text-sm text-red-700 bg-red-50 border border-red-200 px-3 py-1 rounded-full font-medium">
+                <span className="w-2 h-2 bg-red-500 rounded-full"></span>
+                Provider Not Configured
               </div>
             )}
           </div>

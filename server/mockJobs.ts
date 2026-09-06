@@ -1,6 +1,6 @@
 import { Job } from '../src/types.js';
 
-export const mockJobs: Partial<Job>[] = [
+const mockJobsBase: Partial<Job>[] = [
   {
     id: `mock-naukri-1`,
     title: 'Digital Marketing Manager',
@@ -131,4 +131,35 @@ export const mockJobs: Partial<Job>[] = [
     source: 'Naukri (Mock)',
     postedDate: Date.now() - 86400000 * 12,
   },
+];
+
+// Adding some non-marketing roles to ensure our search doesn't return unrelated roles
+export const mockJobs: Partial<Job>[] = [
+  ...mockJobsBase,
+  {
+    id: `mock-naukri-11`,
+    title: 'Senior Frontend Developer',
+    company: 'WebTech Inc',
+    location: 'Remote',
+    experienceRequired: '5-8 years',
+    salaryRange: '₹20,00,000 - ₹30,00,000',
+    workMode: 'Remote',
+    description: 'Looking for a React expert to build our next-generation UI. Must have experience with TypeScript, Vite, and state management.',
+    url: 'https://naukri.com/mock-11',
+    source: 'Naukri (Mock)',
+    postedDate: Date.now() - 86400000 * 2,
+  },
+  {
+    id: `mock-naukri-12`,
+    title: 'Full Stack Engineer',
+    company: 'Backend Systems',
+    location: 'Bangalore',
+    experienceRequired: '3-6 years',
+    salaryRange: '₹15,00,000 - ₹25,00,000',
+    workMode: 'Hybrid',
+    description: 'Work on our core APIs and internal dashboards. Node.js, Express, PostgreSQL, and React experience is mandatory.',
+    url: 'https://naukri.com/mock-12',
+    source: 'Naukri (Mock)',
+    postedDate: Date.now() - 86400000 * 1,
+  }
 ];

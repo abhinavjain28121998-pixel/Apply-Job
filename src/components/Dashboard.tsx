@@ -30,7 +30,7 @@ export default function Dashboard() {
   if (loading) return <div className="p-8">Loading dashboard...</div>;
 
   const jobsSaved = jobs.length;
-  const jobsDiscovered = jobsSaved > 0 ? jobsSaved * 4 + 12 : 0; // Mocking discovered metric
+  const jobsDiscovered = jobsSaved; // Cannot accurately track undiscovered jobs in this local demo mode, default to saved
   const jobsAnalyzed = jobs.filter(j => j.matchScore !== undefined).length;
   const strongMatches = jobs.filter(j => j.recommendation === 'APPLY').length;
   const applicationsSubmitted = jobs.filter(j => ['APPLIED', 'INTERVIEW', 'OFFER', 'REJECTED'].includes(j.status)).length;

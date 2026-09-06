@@ -24,30 +24,29 @@ export default function FindJobs() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
 
+  const [savedJobs, setSavedJobs] = useState<Map<string, Partial<Job>>>(new Map());
   useEffect(() => {
     if (!user) return;
     const fetchUserData = async () => {
       const jobs = await jobService.getJobsForUser(user.uid);
+      const savedMap = new Map<string, Partial<Job>>();
       const savedIds = new Set<string>();
-      jobs.forEach(j => savedIds.add(j.id!));
+      jobs.forEach(j => {
+        savedIds.add(j.id!);
+        savedMap.set(j.id!, j);
+      });
       setSavedJobIds(savedIds);
-
-      const profile = await resumeService.getProfile(user.uid);
-      setBaseCv(profile.baseCvText || '');
+      setSavedJobs(savedMap);
     };
-    
-    const fetchProviderStatus = async () => {
-      try {
-        const res = await fetch('/api/providers/status');
-        if (res.ok) setProviderStatus(await res.json());
-      } catch (e) {
-        console.error(e);
-      }
-    }
-    
     fetchUserData();
-    fetchProviderStatus();
   }, [user]);
+
+  useEffect(() => {
+    fetch('/api/provider/status')
+      .then(res => res.json())
+      .then(data => setProviderStatus(data))
+      .catch(console.error);
+  }, []);
 
   const handleSearch = async (loadMore = false) => {
     if (!user) return;
@@ -70,9 +69,8 @@ export default function FindJobs() {
         const newJobs = data.jobs;
         setResults(loadMore ? [...results, ...newJobs] : newJobs);
         
-        if (baseCv) {
-          analyzeJobsSequentially(newJobs);
-        }
+        // Auto-analysis is disabled to avoid hitting rate limits on search
+        // Users can analyze individual jobs from the Workspace
       }
     } catch (err) {
       console.error(err);
@@ -83,9 +81,7 @@ export default function FindJobs() {
 
   const analyzeJobsSequentially = async (jobsToAnalyze: Partial<Job>[]) => {
     for (const job of jobsToAnalyze) {
-      if (savedJobIds.has(job.id!)) continue;
       if (job.matchScore) continue;
-
       setAnalyzingIds(prev => new Set(prev).add(job.id!));
       try {
         const res = await fetch('/api/analyze-job', {
@@ -99,6 +95,22 @@ export default function FindJobs() {
         
         if (res.ok) {
           const analysis = await res.json();
+          
+          // If the job is saved, persist the analysis to jobService immediately
+          if (savedJobIds.has(job.id!)) {
+             await jobService.updateJob(job.id!, analysis);
+             // Also update local savedJobs map
+             setSavedJobs(prev => {
+                const next = new Map(prev);
+                const existing = next.get(job.id!) || job;
+                next.set(job.id!, { ...existing, ...analysis });
+                return next;
+             });
+          } else {
+             // If not saved, we just save it now automatically as they analyzed it
+             await saveJob({ ...job, ...analysis });
+          }
+
           setResults(prev => prev.map(j => {
             if (j.id === job.id) return { ...j, ...analysis };
             return j;
@@ -160,7 +172,7 @@ export default function FindJobs() {
     return `${Math.floor(hours / 24)}d ago`;
   };
 
-  const sortedResults = getSortedResults();
+  const sortedResults = getSortedResults().map(job => savedJobs.has(job.id!) ? { ...job, ...savedJobs.get(job.id!) } : job);
 
   return (
     <div className="p-8 max-w-7xl mx-auto flex flex-col md:flex-row gap-8">
@@ -319,7 +331,14 @@ export default function FindJobs() {
                     <div className="flex items-center gap-2 text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-lg text-sm font-medium">
                       <Loader2 className="w-4 h-4 animate-spin" /> Analyzing Fit
                     </div>
-                  ) : null}
+                  ) : (
+                    <button 
+                      onClick={() => analyzeJobsSequentially([job])}
+                      className="flex items-center gap-2 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                    >
+                      Analyze Fit
+                    </button>
+                  )}
                 </div>
 
                 <div className="flex flex-wrap gap-4 text-sm text-slate-600 mb-5">

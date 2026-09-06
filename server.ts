@@ -19,6 +19,16 @@ async function startServer() {
   });
 
   // Jobs Provider Routes
+  app.get("/api/provider/status", async (req, res) => {
+    try {
+      const provider = getProvider();
+      const status = await provider.healthCheck();
+      res.json(status);
+    } catch (e) {
+      res.status(500).json({ error: "Failed to check status" });
+    }
+  });
+
   app.post("/api/jobs/search", async (req, res) => {
     try {
       const provider = getProvider();
@@ -126,77 +136,18 @@ ${baseCv}`;
   app.post("/api/analyze-job", async (req, res) => {
     try {
       const { jobDescription, baseCv } = req.body;
-      
       if (!jobDescription || !baseCv) {
         return res.status(400).json({ error: "Missing jobDescription or baseCv" });
       }
 
-      const prompt = `You are an expert technical recruiter and career coach.
-Analyze the following job description against the provided CV.
-Return a JSON object matching this schema:
-{
-  "matchScore": number (0-100),
-  "matchExplanation": "string (short overview of why it is a match or not)",
-  "skillsMatch": "string (e.g. 'Strong match on React, Node. Missing Python')",
-  "experienceMatch": "string (e.g. 'Candidate has 4 yrs vs 5 yrs required')",
-  "seniorityMatch": "string (e.g. 'Perfect Fit', 'Overqualified', 'Underqualified')",
-  "industryMatch": "string",
-  "locationMatch": "string (Fit regarding location/work-mode)",
-  "educationMatch": "string",
-  "matchedSkills": ["array", "of", "matched", "skills"],
-  "missingRequiredSkills": ["array", "of", "missing", "hard requirements"],
-  "missingNiceToHaveSkills": ["array", "of", "missing", "nice-to-haves"],
-  "concerns": ["array", "of", "potential", "red flags or concerns"],
-  "recommendation": "APPLY" | "APPLY_WITH_CHANGES" | "LOW_PRIORITY" | "SKIP"
-}
-
-Constraints:
-- Be realistic and strict with the score.
-- Base your analysis ONLY on truthful information in the CV. Do not invent any qualifications.
-- If the CV is missing fundamental requirements, recommend SKIP or LOW_PRIORITY.
-- If it's a good match but needs tailoring, recommend APPLY_WITH_CHANGES.
-
-Job Description:
-${jobDescription}
-
-My CV:
-${baseCv}`;
-
-      let parsed = {};
-      if (ai) {
-        const response = await ai.models.generateContent({
-          model: "gemini-2.5-flash",
-          contents: prompt,
-          config: {
-            responseMimeType: "application/json",
-            temperature: 0.2
-          }
-        });
-        
-        try {
-          const text = response.text || "{}";
-          parsed = JSON.parse(text);
-        } catch (e) {
-          console.error("Failed to parse Gemini response", e);
-          return res.status(500).json({ error: "Failed to parse analysis" });
-        }
-      } else {
-        parsed = {
-          matchScore: 85,
-          matchExplanation: "[Demo Mode] Mock Analysis: You are a strong fit for this role based on your CV.",
-          skillsMatch: "Good match",
-          experienceMatch: "Sufficient",
-          seniorityMatch: "Perfect Fit",
-          matchedSkills: ["React", "TypeScript"],
-          missingRequiredSkills: [],
-          recommendation: "APPLY"
-        };
-      }
-
-      res.json(parsed);
+      const { MatchingService } = await import('./src/services/matchingService.js');
+      const matchingService = new MatchingService();
+      const analysis = await matchingService.evaluateMatch(jobDescription, baseCv);
+      
+      res.json(analysis);
     } catch (error) {
       console.error(error);
-      res.status(500).json({ error: "Internal server error" });
+      res.status(500).json({ error: "Analysis failed" });
     }
   });
 

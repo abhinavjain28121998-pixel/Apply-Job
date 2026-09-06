@@ -1,0 +1,31 @@
+Bugs Found
+1. `src/services/matchingService.ts` was empty. Matching logic was hard-coded in the API route, outputting fake demo scores.
+2. Missing persistence hook: `FindJobs.tsx` only updated local component state upon analysis, losing the generated match score upon navigation.
+3. Overly permissive Mock Search: Searching "digital marketing" could potentially return unrelated jobs if mock data was sparse.
+4. Duplicate Readiness Calculations: Hardcoded readiness math existed across components without considering actual required content states.
+5. Inaccurate Provider Status: `NaukriJobProvider` scaffolding did not properly signal a `NOT_CONFIGURED` state when missing credentials, leading the UI to mistakenly believe it was 'Connected'.
+
+Bugs Fixed
+1. Implemented a robust `MatchingService`: Created a deterministic scoring engine that parses jobs/resumes via Gemini, extracts structured `{ MATCHED, MISSING, UNCLEAR }` schemas, and strictly applies the requested scoring weights (Skills 35, Experience 20, etc). It never infers missing qualifications as matches.
+2. Hardened Persistence: `FindJobs.tsx` now calls `jobService.updateJob` immediately upon analysis completion. Analyzed states (Match Scores, Match Explanations) survive page refreshes and navigation seamlessly.
+3. Enhanced `MockJobProvider` Search: Rewrote `searchJobs()` to strictly filter multi-term, case-insensitive queries across titles, descriptions, and roles. Added `Senior Frontend Developer` and `Full Stack Engineer` dummy roles to verify that a "digital marketing" search safely excludes them.
+4. Centralized `applicationReadinessService`: Consolidated readiness scoring to dynamically rely on actual completion state (Analyzed, Tailored CV, Cover Letter, Answers, Job Info), feeding directly into `ApplicationWorkspace.tsx`.
+5. Fixed Provider State UI: Replaced `user.isDemo` heuristic with an authoritative `/api/provider/status` ping. The header now rigidly enforces mutually exclusive states: "Demo Mode · Mock Jobs", "Provider Not Configured" (if prod keys are missing), and "Live Provider · Connected".
+6. Server-Side Delegation: Refactored `server.ts` to delegate business logic to `MatchingService` instead of inlining it.
+
+Tests Run
+- Created `matchingService.test.ts` to strictly assert correct deduction for missing required skills and boundary scoring (e.g. `< 40` triggering `SKIP`).
+- Created `mockProvider.test.ts` to assert that searches for "frontend developer" explicitly find only frontend roles.
+- 4 test files, 9 tests run and passed cleanly.
+
+Files Changed
+- `src/services/matchingService.ts` (new)
+- `src/services/applicationReadinessService.ts`
+- `server/providers.ts`
+- `server/mockJobs.ts`
+- `server.ts`
+- `src/App.tsx`
+- `src/components/FindJobs.tsx`
+- `tests/matchingService.test.ts` (new)
+- `tests/mockProvider.test.ts` (new)
+- `tests/application.test.ts`
