@@ -1,0 +1,6 @@
+{
+  "name": "Naukri AI Job Assistant",
+  "description": "An AI-powered job application assistant that analyzes job descriptions, scores matches against your CV, and generates tailored applications.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
