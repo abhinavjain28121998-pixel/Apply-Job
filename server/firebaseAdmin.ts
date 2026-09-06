@@ -1,8 +1,10 @@
 import { initializeApp, getApps, cert, type App } from 'firebase-admin/app';
 import { getAuth, type Auth } from 'firebase-admin/auth';
+import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 
 let adminApp: App | null = null;
 let adminAuth: Auth | null = null;
+let adminFirestore: Firestore | null = null;
 
 /**
  * Resolves the Firebase project ID from explicit environment variables or service account.
@@ -109,6 +111,21 @@ export function getFirebaseAuth(): Auth | null {
   if (!app) return null;
   adminAuth = getAuth(app);
   return adminAuth;
+}
+
+export function getFirebaseFirestore(): Firestore | null {
+  if (adminFirestore) {
+    return adminFirestore;
+  }
+  const app = getFirebaseAdmin();
+  if (!app) return null;
+  try {
+    adminFirestore = getFirestore(app);
+    return adminFirestore;
+  } catch (e) {
+    console.warn('Failed to initialize Firestore Admin:', e);
+    return null;
+  }
 }
 
 // Helpers to reset auth/app reference (useful for testing)

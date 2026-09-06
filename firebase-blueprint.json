@@ -68,6 +68,49 @@
         "updatedAt": { "type": "number", "description": "Update timestamp" }
       },
       "required": ["id", "userId", "jobId", "status", "createdAt", "updatedAt"]
+    },
+    "SavedLinkedInSearch": {
+      "title": "Saved LinkedIn Search",
+      "description": "User saved external LinkedIn job search query intent",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique search ID" },
+        "userId": { "type": "string", "description": "Owning user UID" },
+        "title": { "type": "string", "description": "Title or label for search" },
+        "generatedUrl": { "type": "string", "description": "Official LinkedIn Jobs search URL" },
+        "createdAt": { "type": "number", "description": "Creation timestamp" }
+      },
+      "required": ["id", "userId", "generatedUrl", "createdAt"]
+    },
+    "UserPreferences": {
+      "title": "User Search Preferences",
+      "description": "Job search preferences, criteria, and filters",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owning user UID" },
+        "keywords": { "type": "array", "items": { "type": "string" }, "description": "Target keywords" },
+        "jobTitle": { "type": "string", "description": "Target role" },
+        "location": { "type": "string", "description": "Target location" },
+        "workMode": { "type": "string", "description": "Preferred work mode" },
+        "experienceLevel": { "type": "string", "description": "Experience level" },
+        "updatedAt": { "type": "number", "description": "Last updated timestamp" }
+      },
+      "required": ["userId", "keywords", "updatedAt"]
+    },
+    "LinkedInConnection": {
+      "title": "LinkedIn Connection Status",
+      "description": "LinkedIn OAuth OpenID Connect account status",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owning user UID" },
+        "provider": { "type": "string", "enum": ["linkedin"] },
+        "connectedAt": { "type": "number", "description": "Connected timestamp" },
+        "scopes": { "type": "array", "items": { "type": "string" } },
+        "status": { "type": "string", "enum": ["CONNECTED", "EXPIRED", "REVOKED"] },
+        "displayName": { "type": "string" },
+        "email": { "type": "string" }
+      },
+      "required": ["userId", "provider", "connectedAt", "status"]
     }
   },
   "firestore": {
@@ -86,6 +129,18 @@
     "/applications/{docId}": {
       "schema": { "$ref": "#/entities/Application" },
       "description": "Application tracking and tailored application documents"
+    },
+    "/saved_linkedin_searches/{docId}": {
+      "schema": { "$ref": "#/entities/SavedLinkedInSearch" },
+      "description": "Saved LinkedIn job search configurations for external navigation"
+    },
+    "/user_preferences/{userId}": {
+      "schema": { "$ref": "#/entities/UserPreferences" },
+      "description": "Candidate job search preferences and filters"
+    },
+    "/linkedin_connections/{userId}": {
+      "schema": { "$ref": "#/entities/LinkedInConnection" },
+      "description": "LinkedIn account link status and OpenID profile connection"
     }
   }
 }

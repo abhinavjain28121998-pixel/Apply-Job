@@ -1,17 +1,61 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../AuthContext';
-import { Job, JobMatch, SearchFilters, ProviderStatus } from '../types';
+import { 
+  Job, 
+  JobMatch, 
+  SearchFilters, 
+  ProviderStatus, 
+  SavedLinkedInSearch, 
+  UserProfile,
+  JobSearchPreferences,
+  LinkedInStatusResponse
+} from '../types';
 import { jobService } from '../services/jobService';
 import { jobMatchService } from '../services/jobMatchService';
 import { resumeService } from '../services/resumeService';
-import { Search, MapPin, Briefcase, IndianRupee, Loader2, Star, CheckCircle2, Clock, Filter, AlertTriangle, Building, Save, Info } from 'lucide-react';
+import { preferenceService } from '../services/preferenceService';
+import { linkedinAuthService } from '../services/linkedinAuthService';
+import {
+  buildLinkedInJobsUrl,
+  buildLinkedInSearchUrlForJob,
+  buildLinkedInSearchUrlFromProfile,
+  linkedinSearchService
+} from '../services/linkedinService';
+import {
+  Search,
+  MapPin,
+  Briefcase,
+  IndianRupee,
+  Loader2,
+  Star,
+  CheckCircle2,
+  Clock,
+  Filter,
+  AlertTriangle,
+  Building,
+  Save,
+  Info,
+  Linkedin,
+  ExternalLink,
+  Sparkles,
+  Bookmark,
+  Trash2,
+  Globe,
+  Sliders,
+  UserCheck,
+  LogOut,
+  Check,
+  X
+} from 'lucide-react';
 import { Link } from 'react-router-dom';
 import JobDetailModal from './JobDetailModal';
+import SearchPreferencesModal from './SearchPreferencesModal';
 import { safeFetchJson } from '../lib/api';
 
 export default function FindJobs() {
   const { user, getToken } = useAuth();
   const [filters, setFilters] = useState<SearchFilters>({ query: '', location: '', workMode: '' });
+  const [selectedSource, setSelectedSource] = useState<'all' | 'naukri' | 'linkedin'>('all');
   const [searching, setSearching] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -26,6 +70,28 @@ export default function FindJobs() {
   const [hasMore, setHasMore] = useState(false);
 
   const [matches, setMatches] = useState<Map<string, JobMatch>>(new Map());
+  const [userProfile, setUserProfile] = useState<Partial<UserProfile> | null>(null);
+  const [savedLinkedInSearches, setSavedLinkedInSearches] = useState<SavedLinkedInSearch[]>([]);
+  const [searchSavedMessage, setSearchSavedMessage] = useState<string | null>(null);
+  const [savingSearch, setSavingSearch] = useState(false);
+
+  // Search Preferences & LinkedIn Integration States
+  const [preferences, setPreferences] = useState<JobSearchPreferences | null>(null);
+  const [showPreferencesModal, setShowPreferencesModal] = useState(false);
+  const [savingPreferences, setSavingPreferences] = useState(false);
+  const [linkedInStatus, setLinkedInStatus] = useState<LinkedInStatusResponse | null>(null);
+  const [connectingLinkedIn, setConnectingLinkedIn] = useState(false);
+  const [connectMessage, setConnectMessage] = useState<string | null>(null);
+
+  const refreshLinkedInStatus = async (uid?: string) => {
+    try {
+      const status = await linkedinAuthService.getStatus(uid || user?.uid);
+      setLinkedInStatus(status);
+    } catch (e) {
+      console.warn('Failed to load LinkedIn status:', e);
+    }
+  };
+
   useEffect(() => {
     if (!user) return;
     const fetchUserData = async () => {
@@ -38,9 +104,86 @@ export default function FindJobs() {
       const matchMap = new Map<string, JobMatch>();
       persistedMatches.forEach(m => matchMap.set(m.jobId, m));
       setMatches(matchMap);
+
+      const profile = await resumeService.getProfile(user.uid);
+      if (profile) setUserProfile(profile);
+
+      const savedSearches = await linkedinSearchService.getSavedSearches(user.uid);
+      setSavedLinkedInSearches(savedSearches);
+
+      // Load preferences
+      const prefs = await preferenceService.getPreferences(user.uid, profile);
+      setPreferences(prefs);
+      if (prefs && !filters.query) {
+        setFilters(prev => ({
+          ...prev,
+          query: prefs.keywords?.join(', ') || prefs.jobTitle || prev.query,
+          location: prefs.location || prev.location,
+          workMode: (prefs.workMode as SearchFilters['workMode']) || prev.workMode
+        }));
+      }
+
+      // Check LinkedIn Integration Status
+      refreshLinkedInStatus(user.uid);
     };
     fetchUserData();
   }, [user]);
+
+  const handleConnectLinkedIn = async () => {
+    if (!user) return;
+    setConnectingLinkedIn(true);
+    setConnectMessage(null);
+    try {
+      const startRes = await linkedinAuthService.getAuthStart(user.uid);
+      if (!startRes.configured || !startRes.authUrl) {
+        throw new Error(startRes.error || 'LinkedIn OAuth is not configured with client credentials.');
+      }
+
+      await linkedinAuthService.openAuthPopup(startRes.authUrl);
+      setConnectMessage('Successfully connected your LinkedIn profile via OpenID Connect!');
+      await refreshLinkedInStatus(user.uid);
+      setTimeout(() => setConnectMessage(null), 4000);
+    } catch (err: any) {
+      console.error('LinkedIn connection failed:', err);
+      setConnectMessage(err?.message || 'LinkedIn authorization was canceled or failed.');
+      setTimeout(() => setConnectMessage(null), 5000);
+    } finally {
+      setConnectingLinkedIn(false);
+    }
+  };
+
+  const handleDisconnectLinkedIn = async () => {
+    if (!user) return;
+    try {
+      await linkedinAuthService.disconnect(user.uid);
+      await refreshLinkedInStatus(user.uid);
+      setConnectMessage('LinkedIn account disconnected.');
+      setTimeout(() => setConnectMessage(null), 3000);
+    } catch (e: any) {
+      console.error('Failed to disconnect LinkedIn:', e);
+    }
+  };
+
+  const handleSavePreferences = async (updated: Partial<JobSearchPreferences>) => {
+    if (!user) return;
+    setSavingPreferences(true);
+    try {
+      const saved = await preferenceService.savePreferences(user.uid, updated);
+      setPreferences(saved);
+      setShowPreferencesModal(false);
+      // Auto-apply to search filters
+      setFilters(prev => ({
+        ...prev,
+        query: saved.keywords?.join(', ') || saved.jobTitle || prev.query,
+        location: saved.location || prev.location,
+        workMode: (saved.workMode as SearchFilters['workMode']) || prev.workMode
+      }));
+    } catch (e) {
+      console.error('Failed to save preferences:', e);
+    } finally {
+      setSavingPreferences(false);
+    }
+  };
 
   useEffect(() => {
     safeFetchJson('/api/provider/status')
@@ -159,6 +302,64 @@ export default function FindJobs() {
     }
   };
 
+  const getLinkedInSearchUrl = () => {
+    return buildLinkedInJobsUrl({
+      keywords: filters.query,
+      location: filters.location,
+      workMode: filters.workMode
+    });
+  };
+
+  const handleOpenLinkedInSearch = () => {
+    const url = getLinkedInSearchUrl();
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleOpenLinkedInFromProfile = () => {
+    if (!userProfile) return;
+    const url = buildLinkedInSearchUrlFromProfile(userProfile);
+    // Optionally update current filters to match
+    if (userProfile.currentRole) {
+      setFilters(prev => ({
+        ...prev,
+        query: userProfile.currentRole || prev.query,
+        location: (userProfile.preferredLocations && userProfile.preferredLocations[0]) || prev.location,
+        workMode: (userProfile.workMode as SearchFilters['workMode']) || prev.workMode
+      }));
+    }
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleSaveLinkedInSearch = async () => {
+    if (!user) return;
+    setSavingSearch(true);
+    try {
+      const title = filters.query ? `${filters.query}${filters.location ? ` in ${filters.location}` : ''}` : 'LinkedIn Job Search';
+      const saved = await linkedinSearchService.saveSearch(user.uid, {
+        keywords: filters.query,
+        location: filters.location,
+        workMode: filters.workMode
+      }, title);
+      setSavedLinkedInSearches(prev => [saved, ...prev.filter(s => s.id !== saved.id)]);
+      setSearchSavedMessage('Search saved to your LinkedIn bookmarks!');
+      setTimeout(() => setSearchSavedMessage(null), 3000);
+    } catch (e) {
+      console.error('Failed to save search:', e);
+    } finally {
+      setSavingSearch(false);
+    }
+  };
+
+  const handleDeleteSavedSearch = async (searchId: string) => {
+    if (!user) return;
+    try {
+      await linkedinSearchService.deleteSearch(user.uid, searchId);
+      setSavedLinkedInSearches(prev => prev.filter(s => s.id !== searchId));
+    } catch (e) {
+      console.error('Failed to delete saved search:', e);
+    }
+  };
+
   const getSortedResults = () => {
     let combined = results.map(job => ({
       job,
@@ -196,12 +397,51 @@ export default function FindJobs() {
       {/* Filters Sidebar */}
       <div className="w-full md:w-80 shrink-0">
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5 sticky top-8">
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold text-lg flex items-center gap-2"><Filter className="w-5 h-5"/> Filters</h2>
-            <button onClick={clearFilters} className="text-sm text-indigo-600 hover:text-indigo-800 font-medium">Clear All</button>
+            <div className="flex items-center gap-2">
+              <button 
+                type="button"
+                onClick={() => setShowPreferencesModal(true)} 
+                className="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold px-2.5 py-1 rounded-lg flex items-center gap-1 transition-colors"
+                title="Customize automatic target job title and keywords"
+              >
+                <Sliders className="w-3.5 h-3.5" />
+                <span>Prefs</span>
+                {preferences?.jobTitle && <span className="w-1.5 h-1.5 rounded-full bg-indigo-600"></span>}
+              </button>
+              <button onClick={clearFilters} className="text-xs text-slate-500 hover:text-slate-800 font-medium">Clear</button>
+            </div>
           </div>
 
           <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Job Source / Destination</label>
+              <div className="grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-lg text-xs font-semibold text-slate-600">
+                <button
+                  type="button"
+                  onClick={() => setSelectedSource('all')}
+                  className={`py-1.5 px-2 rounded-md transition-colors ${selectedSource === 'all' ? 'bg-white text-indigo-700 shadow-sm' : 'hover:text-slate-900'}`}
+                >
+                  All Sources
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedSource('naukri')}
+                  className={`py-1.5 px-2 rounded-md transition-colors ${selectedSource === 'naukri' ? 'bg-white text-indigo-700 shadow-sm' : 'hover:text-slate-900'}`}
+                >
+                  Naukri
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedSource('linkedin')}
+                  className={`py-1.5 px-2 rounded-md transition-colors flex items-center justify-center gap-1 ${selectedSource === 'linkedin' ? 'bg-white text-blue-700 shadow-sm' : 'hover:text-slate-900'}`}
+                >
+                  <Linkedin className="w-3.5 h-3.5 text-[#0A66C2]" /> LinkedIn
+                </button>
+              </div>
+            </div>
+
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Keywords / Title</label>
               <div className="relative">
@@ -247,11 +487,106 @@ export default function FindJobs() {
             <button 
               onClick={() => handleSearch(false)}
               disabled={searching || loadingMore}
-              className="w-full mt-4 bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-70"
+              className="w-full mt-2 bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-70"
             >
               {searching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-              {searching ? 'Searching...' : 'Search Jobs'}
+              {searching ? 'Searching...' : 'Search Internal Jobs'}
             </button>
+
+            <div className="pt-3 border-t border-slate-100 space-y-2">
+              <button
+                type="button"
+                onClick={handleOpenLinkedInSearch}
+                className="w-full bg-[#0A66C2] hover:bg-[#004182] text-white py-2.5 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 text-sm shadow-sm"
+                title="Open official LinkedIn Jobs in a new tab with current filters"
+              >
+                <Linkedin className="w-4 h-4" />
+                Search on LinkedIn
+                <ExternalLink className="w-3.5 h-3.5 opacity-80" />
+              </button>
+
+              {userProfile && (
+                <button
+                  type="button"
+                  onClick={handleOpenLinkedInFromProfile}
+                  className="w-full bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-1.5 text-xs"
+                  title="Find matching jobs on LinkedIn using target role and skills from your profile"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                  Find on LinkedIn using CV
+                </button>
+              )}
+
+              <p className="text-[11px] text-slate-500 leading-tight px-1">
+                LinkedIn opens in a new tab. Applications are completed directly on LinkedIn.
+              </p>
+
+              {/* LinkedIn Account & Integration Info */}
+              <div className="pt-3 border-t border-slate-100">
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                      <Linkedin className="w-3.5 h-3.5 text-[#0A66C2]" /> LinkedIn Connect
+                    </span>
+                    {linkedInStatus?.connected ? (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 bg-green-100 text-green-700 rounded-full flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-green-600"></span> OpenID Active
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-semibold text-slate-400">
+                        Redirect Mode
+                      </span>
+                    )}
+                  </div>
+
+                  {linkedInStatus?.connected && linkedInStatus.account ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        {linkedInStatus.account.pictureUrl ? (
+                          <img src={linkedInStatus.account.pictureUrl} alt="" className="w-6 h-6 rounded-full" />
+                        ) : (
+                          <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-[10px] font-bold">
+                            {linkedInStatus.account.displayName?.[0] || 'L'}
+                          </div>
+                        )}
+                        <div className="truncate text-xs">
+                          <p className="font-semibold text-slate-800 truncate">{linkedInStatus.account.displayName}</p>
+                          {linkedInStatus.account.email && <p className="text-[10px] text-slate-500 truncate">{linkedInStatus.account.email}</p>}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleDisconnectLinkedIn}
+                        className="w-full text-[11px] text-slate-500 hover:text-red-600 hover:bg-red-50 py-1 rounded transition-colors flex items-center justify-center gap-1"
+                      >
+                        <LogOut className="w-3 h-3" /> Disconnect LinkedIn
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="text-[11px] text-slate-500 leading-tight">
+                        Connect your LinkedIn account via official OpenID Connect for verified profile data.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleConnectLinkedIn}
+                        disabled={connectingLinkedIn}
+                        className="w-full py-1.5 px-2 bg-white border border-[#0A66C2]/40 text-[#0A66C2] hover:bg-blue-50 text-xs font-semibold rounded-md transition-colors flex items-center justify-center gap-1.5 shadow-2xs"
+                      >
+                        {connectingLinkedIn ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Linkedin className="w-3.5 h-3.5" />}
+                        {connectingLinkedIn ? 'Connecting...' : 'Connect with LinkedIn'}
+                      </button>
+                    </div>
+                  )}
+
+                  {connectMessage && (
+                    <div className="mt-2 text-[10px] p-1.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-100">
+                      {connectMessage}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -310,6 +645,95 @@ export default function FindJobs() {
           </div>
         )}
 
+        {/* LinkedIn External Job Destination Card */}
+        <div className="mb-6 bg-gradient-to-r from-blue-50/80 via-white to-indigo-50/50 border border-blue-200 rounded-xl p-5 shadow-sm">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 bg-[#0A66C2] text-white rounded-md">
+                  <Linkedin className="w-4 h-4" />
+                </span>
+                <h3 className="font-bold text-slate-900 text-base">LinkedIn Jobs Search Destination</h3>
+                <span className="text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 bg-blue-100 text-[#0A66C2] rounded">External Portal</span>
+              </div>
+              <p className="text-xs text-slate-600 max-w-2xl leading-relaxed">
+                LinkedIn opens in a new browser tab with your criteria pre-configured. Applications are completed directly on LinkedIn. We never scrape, automate, or collect credentials.
+              </p>
+              {(filters.query || filters.location || filters.workMode) && (
+                <div className="flex flex-wrap items-center gap-2 pt-1 text-xs text-slate-600">
+                  <span className="font-medium text-slate-500">Active Criteria:</span>
+                  {filters.query && <span className="bg-white border border-slate-200 px-2 py-0.5 rounded text-slate-700">Keywords: <strong>{filters.query}</strong></span>}
+                  {filters.location && <span className="bg-white border border-slate-200 px-2 py-0.5 rounded text-slate-700">Location: <strong>{filters.location}</strong></span>}
+                  {filters.workMode && <span className="bg-white border border-slate-200 px-2 py-0.5 rounded text-slate-700">Mode: <strong>{filters.workMode}</strong></span>}
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleOpenLinkedInSearch}
+                className="px-4 py-2 bg-[#0A66C2] hover:bg-[#004182] text-white text-sm font-semibold rounded-lg shadow-sm transition-colors flex items-center gap-2"
+              >
+                <Linkedin className="w-4 h-4" />
+                Open LinkedIn Jobs
+                <ExternalLink className="w-3.5 h-3.5" />
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSaveLinkedInSearch}
+                disabled={savingSearch}
+                className="px-3 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5"
+                title="Bookmark this search criteria"
+              >
+                <Bookmark className="w-4 h-4 text-slate-500" />
+                {savingSearch ? 'Saving...' : 'Bookmark Search'}
+              </button>
+            </div>
+          </div>
+
+          {searchSavedMessage && (
+            <div className="mt-3 p-2 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-lg flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              {searchSavedMessage}
+            </div>
+          )}
+
+          {/* Saved searches list if any */}
+          {savedLinkedInSearches.length > 0 && (
+            <div className="mt-4 pt-3 border-t border-blue-100">
+              <div className="text-xs font-semibold text-slate-500 mb-2 flex items-center gap-1.5">
+                <Bookmark className="w-3.5 h-3.5" />
+                Saved LinkedIn Searches:
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {savedLinkedInSearches.map(saved => (
+                  <div key={saved.id} className="group inline-flex items-center gap-1.5 bg-white border border-slate-200 rounded-md pl-2.5 pr-1.5 py-1 text-xs text-slate-700 hover:border-blue-300 transition-colors">
+                    <a
+                      href={saved.generatedUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium hover:text-[#0A66C2] flex items-center gap-1"
+                    >
+                      {saved.title}
+                      <ExternalLink className="w-3 h-3 opacity-50 group-hover:opacity-100" />
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteSavedSearch(saved.id)}
+                      className="text-slate-400 hover:text-red-600 p-0.5 rounded transition-colors"
+                      title="Remove saved search"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
         <div className="flex justify-between items-end mb-6">
           <div>
             <h1 className="text-2xl font-bold text-slate-800">Discovered Jobs</h1>
@@ -364,7 +788,14 @@ export default function FindJobs() {
                       <Building className="w-4 h-4 text-slate-400" />
                       <span className="font-medium text-slate-700">{job.company}</span>
                       <span className="text-slate-300">•</span>
-                      <span className="text-xs px-2 py-1 bg-slate-100 text-slate-600 rounded-md font-medium">{job.source}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-md font-semibold flex items-center gap-1 ${
+                        job.source === 'LinkedIn' 
+                          ? 'bg-blue-50 text-[#0A66C2] border border-blue-200' 
+                          : 'bg-slate-100 text-slate-600'
+                      }`}>
+                        {job.source === 'LinkedIn' && <Linkedin className="w-3 h-3 text-[#0A66C2]" />}
+                        {job.source === 'LinkedIn' ? 'LinkedIn Destination' : 'Naukri / Mock'}
+                      </span>
                     </div>
                   </div>
                   
@@ -378,8 +809,15 @@ export default function FindJobs() {
                          ) : (
                            <div className="text-sm font-medium text-slate-500">Analysis Unavailable</div>
                          )}
-                         <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider text-right leading-tight">Match<br/>Score</div>
+                         <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider text-right leading-tight">
+                           Match<br/>Score
+                         </div>
                        </div>
+                       {match.confidenceLevel && (
+                         <span className="text-[10px] font-semibold text-slate-500 mt-1 bg-slate-100 px-2 py-0.5 rounded">
+                           Confidence: {match.confidenceLevel}
+                         </span>
+                       )}
                      </div>
                   ) : isAnalyzing ? (
                     <div className="flex items-center gap-2 text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-lg text-sm font-medium">
@@ -435,7 +873,18 @@ export default function FindJobs() {
                     )}
                   </div>
                   
-                  <div className="flex gap-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <a
+                      href={buildLinkedInSearchUrlForJob(job)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-2 border border-[#0A66C2]/30 text-[#0A66C2] bg-blue-50/50 hover:bg-blue-100/70 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5"
+                      title="Search for this job or company on LinkedIn (opens in new tab)"
+                    >
+                      <Linkedin className="w-4 h-4 text-[#0A66C2]" />
+                      <span>Search on LinkedIn</span>
+                      <ExternalLink className="w-3.5 h-3.5 opacity-60" />
+                    </a>
                     {isSaved ? (
                       <Link to="/tracker" className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition-colors flex items-center gap-2">
                         <CheckCircle2 className="w-4 h-4" /> Saved
@@ -478,6 +927,14 @@ export default function FindJobs() {
           onClose={() => setSelectedJob(null)}
           onSave={() => saveJob(selectedJob)}
           onApplied={() => {}}
+        />
+      )}
+
+      {showPreferencesModal && (
+        <SearchPreferencesModal
+          preferences={preferences}
+          onClose={() => setShowPreferencesModal(false)}
+          onSave={handleSavePreferences}
         />
       )}
     </div>

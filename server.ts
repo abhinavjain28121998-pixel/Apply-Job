@@ -9,12 +9,16 @@ import { getProvider, deduplicateJobs } from './server/providers.js';
 import { requireAuth, isDemoAuthAllowed, getDemoAuthToken } from './server/auth.js';
 import { rateLimit } from './server/rateLimit.js';
 import { generateWithGeminiCascade, parseGeminiJson, isGeminiAvailable } from './server/geminiService.js';
+import { linkedinRouter } from './server/routes/linkedin.js';
 import './server/types.js';
 
 export function createApiApp() {
   const app = express();
 
   app.use(express.json({ limit: '15mb' }));
+
+  // LinkedIn Integration Routes
+  app.use('/api/linkedin', linkedinRouter);
 
   // Check Gemini API key
   const ai = process.env.GEMINI_API_KEY ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }) : null;
@@ -26,7 +30,8 @@ export function createApiApp() {
   // Jobs Provider Routes
   app.get("/api/provider/status", async (req, res) => {
     try {
-      const provider = getProvider();
+      const providerParam = req.query.provider as string | undefined;
+      const provider = getProvider(providerParam);
       const status = await provider.healthCheck();
       res.json(status);
     } catch (e) {

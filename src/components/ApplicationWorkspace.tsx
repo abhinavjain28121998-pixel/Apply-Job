@@ -8,9 +8,10 @@ import { applicationService } from '../services/applicationService';
 import { jobMatchService } from '../services/jobMatchService';
 import { SavedJob, JobMatch, Application } from '../types';
 import { calculateApplicationReadiness } from '../services/applicationReadinessService';
-import { CheckCircle2, ChevronLeft, AlertTriangle, ExternalLink, RefreshCw, FileText, FileSignature, Save, MessageSquare, Briefcase, Loader2, Info } from 'lucide-react';
+import { CheckCircle2, ChevronLeft, AlertTriangle, ExternalLink, RefreshCw, FileText, FileSignature, Save, MessageSquare, Briefcase, Loader2, Info, Linkedin } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { safeFetchJson } from '../lib/api';
+import { buildLinkedInSearchUrlForJob } from '../services/linkedinService';
 
 export default function ApplicationWorkspace() {
   const { id } = useParams<{ id: string }>();
@@ -301,21 +302,41 @@ export default function ApplicationWorkspace() {
 
             {/* Apply Action */}
             <div className="flex flex-col gap-2">
-              <a 
-                href={savedJob?.job?.url} 
-                target="_blank" 
+              {savedJob?.job?.url && (
+                <a 
+                  href={savedJob.job.url} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg shadow-sm transition-colors flex items-center gap-2 justify-center text-sm"
+                >
+                  Apply Externally <ExternalLink className="w-4 h-4" />
+                </a>
+              )}
+
+              <a
+                href={buildLinkedInSearchUrlForJob(savedJob.job)}
+                target="_blank"
                 rel="noopener noreferrer"
-                className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg shadow-sm transition-colors flex items-center gap-2 justify-center"
+                className="px-5 py-2 bg-blue-50 hover:bg-blue-100 text-[#0A66C2] border border-blue-200 font-medium rounded-lg transition-colors flex items-center gap-2 justify-center text-sm"
+                title="Search this job and company on LinkedIn (opens in a new tab)"
               >
-                Apply Externally <ExternalLink className="w-4 h-4" />
+                <Linkedin className="w-4 h-4 text-[#0A66C2]" />
+                Search on LinkedIn
+                <ExternalLink className="w-3.5 h-3.5 opacity-60" />
               </a>
-              {app?.status !== 'APPLIED' && (
+
+              {app?.status !== 'APPLIED' ? (
                 <button 
                   onClick={markAsApplied}
-                  className="px-6 py-2 bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 font-medium rounded-lg transition-colors flex items-center gap-2 justify-center text-sm"
+                  className="px-5 py-2 bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 font-medium rounded-lg transition-colors flex items-center gap-2 justify-center text-sm"
+                  title="Mark application as manually submitted on LinkedIn or company portal"
                 >
                   <CheckCircle2 className="w-4 h-4" /> Mark as Applied
                 </button>
+              ) : (
+                <div className="px-4 py-1.5 bg-green-100 text-green-800 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-green-600" /> Applied
+                </div>
               )}
             </div>
           </div>
@@ -356,6 +377,38 @@ export default function ApplicationWorkspace() {
                     <h4 className="text-xs font-bold text-red-700 uppercase tracking-wider mb-2">Missing Requirements</h4>
                     <div className="flex flex-wrap gap-1.5">
                       {match?.missingRequiredSkills.map(s => <span key={s} className="px-2 py-1 bg-red-50 text-red-700 text-xs font-medium rounded border border-red-100">{s}</span>)}
+                    </div>
+                  </div>
+                )}
+
+                {/* Keyword Gaps */}
+                {match?.keywordGaps && match.keywordGaps.length > 0 && (
+                  <div className="pt-2 border-t border-slate-100">
+                    <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Keyword Gaps</h4>
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                      {match.keywordGaps.slice(0, 5).map((gap, i) => (
+                        <div key={i} className="text-xs p-1.5 rounded bg-slate-50 border border-slate-200 flex items-center justify-between">
+                          <span className="font-medium text-slate-800">{gap.keyword}</span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded ${gap.foundInResume ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}`}>
+                            {gap.foundInResume ? 'Matched' : gap.importance}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Resume Suggestions */}
+                {match?.resumeRecommendations && match.resumeRecommendations.length > 0 && (
+                  <div className="pt-2 border-t border-slate-100">
+                    <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Target Suggestions</h4>
+                    <div className="space-y-2">
+                      {match.resumeRecommendations.slice(0, 3).map((rec, i) => (
+                        <div key={i} className="text-xs p-2 rounded bg-indigo-50/60 border border-indigo-100">
+                          <div className="font-semibold text-indigo-900">{rec.headline}</div>
+                          <div className="text-slate-600 mt-0.5">{rec.suggestion}</div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}

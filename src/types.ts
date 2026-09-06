@@ -44,6 +44,34 @@ export interface UserProfile {
   workHistory?: WorkExperience[];
 }
 
+export type JobSource = 'mock' | 'naukri' | 'linkedin' | 'external' | string;
+
+export interface LinkedInSearchCriteria {
+  keywords?: string;
+  location?: string;
+  remote?: boolean | 'Remote' | 'Hybrid' | 'On-site';
+  workMode?: 'Remote' | 'Hybrid' | 'On-site' | '';
+  experience?: string;
+  jobType?: string;
+  sortBy?: 'recent' | 'relevant';
+}
+
+export interface SavedLinkedInSearch {
+  id: string;
+  userId: string;
+  criteria: LinkedInSearchCriteria;
+  generatedUrl: string;
+  title?: string;
+  createdAt: number;
+}
+
+export interface ExternalJobSearchDestination {
+  id: string;
+  name: string;
+  description: string;
+  buildSearchUrl(criteria: LinkedInSearchCriteria): string;
+}
+
 export interface SearchFilters {
   query?: string;
   location?: string;
@@ -52,6 +80,7 @@ export interface SearchFilters {
   workMode?: 'Remote' | 'Hybrid' | 'On-site' | '';
   employmentType?: string;
   skills?: string[];
+  source?: JobSource;
   page?: number;
   limit?: number;
 }
@@ -132,6 +161,8 @@ export interface JobMatch {
   missingNiceToHaveSkills: string[];
   concerns: string[];
   recommendation: JobRecommendation;
+  keywordGaps?: KeywordGapItem[];
+  resumeRecommendations?: ResumeRecommendationItem[];
   details?: any; // To store full matching evidence
 }
 
@@ -157,6 +188,88 @@ export interface Application {
   bulletImprovements?: { original: string; suggested: string; reason: string; keywordTarget?: string }[];
   updatedSummary?: string;
   emphasizedSkills?: string[];
+}
+
+export interface KeywordGapItem {
+  keyword: string;
+  importance: 'REQUIRED' | 'PREFERRED' | 'CONTEXTUAL';
+  foundInResume: boolean;
+  evidence?: string;
+  recommendation: string;
+}
+
+export interface ResumeRecommendationItem {
+  category: 'SKILLS_TO_EMPHASIZE' | 'ACHIEVEMENTS_TO_REPHRASE' | 'KEYWORDS_TO_ADD' | 'SUMMARY_IMPROVEMENT' | 'EXPERIENCE_ALIGNMENT';
+  headline: string;
+  suggestion: string;
+  groundingEvidence: string;
+}
+
+export interface JobSearchPreferences {
+  id?: string;
+  userId: string;
+  keywords: string[];
+  jobTitle?: string;
+  location?: string;
+  experienceLevel?: string;
+  industry?: string;
+  companySize?: string;
+  workMode?: 'Remote' | 'Hybrid' | 'On-site' | '';
+  employmentType?: string;
+  salaryMin?: number;
+  salaryMax?: number;
+  currency?: string;
+  updatedAt: number;
+  lastUpdated?: number;
+}
+
+export interface ResumeExperience {
+  company: string;
+  title: string;
+  startDate?: string;
+  endDate?: string;
+  isCurrent?: boolean;
+  responsibilities: string[];
+  achievements: string[];
+  skillsUsed: string[];
+}
+
+export interface ResumeProfile {
+  summary: string;
+  skills: string[];
+  tools: string[];
+  industries: string[];
+  experiences: ResumeExperience[];
+  education: string[];
+  certifications: string[];
+  achievements: string[];
+}
+
+export interface LinkedInConnection {
+  userId: string;
+  provider: 'linkedin';
+  connectedAt: number;
+  scopes: string[];
+  status: 'CONNECTED' | 'EXPIRED' | 'REVOKED';
+  linkedInMemberId?: string;
+  displayName?: string;
+  email?: string;
+  pictureUrl?: string;
+}
+
+export interface LinkedInStatusResponse {
+  configured: boolean;
+  connected: boolean;
+  jobSearchApiAvailable: boolean;
+  scopes: string[];
+  lastConnected?: number;
+  providerMode: 'SEARCH_DESTINATION_FALLBACK' | 'ENTERPRISE_API';
+  message: string;
+  displayName?: string;
+  email?: string;
+  pictureUrl?: string;
+  account?: Partial<LinkedInConnection>;
+  authUrl?: string;
 }
 
 export interface ResumeEvidence {

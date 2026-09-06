@@ -1,5 +1,12 @@
 import { GoogleGenAI } from '@google/genai';
-import { JobRecommendation, JobRequirement, ResumeEvidence, WorkExperience } from '../types.js';
+import { 
+  JobRecommendation, 
+  JobRequirement, 
+  ResumeEvidence, 
+  WorkExperience,
+  KeywordGapItem,
+  ResumeRecommendationItem
+} from '../types.js';
 
 export interface EvaluatedRequirement extends JobRequirement {
   matchLevel: 'MATCHED' | 'MISSING' | 'UNCLEAR';
@@ -25,6 +32,8 @@ export interface JobMatchResult {
   missingNiceToHaveSkills: string[];
   concerns: string[];
   recommendation: JobRecommendation;
+  keywordGaps?: KeywordGapItem[];
+  resumeRecommendations?: ResumeRecommendationItem[];
   details: any;
 }
 
@@ -327,8 +336,25 @@ Return a JSON array where each object matches:
     let unclearCount = 0;
     let evidenceAvailableCount = 0;
 
+    // Weight allocation across 7 canonical dimensions:
+    // Skills (30%), Experience (20%), Responsibilities (15%), Seniority (10%), Industry (10%), Education/Certs (5%), Keyword Coverage (10%)
+    const dimensionWeights: Record<string, number> = {
+      SKILL: 30,
+      EXPERIENCE: 20,
+      RESPONSIBILITY: 15,
+      SENIORITY: 10,
+      INDUSTRY: 10,
+      EDUCATION: 5,
+      CERTIFICATION: 5,
+      LOCATION: 5,
+      OTHER: 5
+    };
+
+    const keywordGaps: KeywordGapItem[] = [];
+    const resumeRecommendations: ResumeRecommendationItem[] = [];
+
     for (const req of evaluatedReqs) {
-      const weight = weights[req.category] || 5;
+      const weight = dimensionWeights[req.category] || 5;
       totalPossible += weight;
       
       let reqEarned = 0;
@@ -348,14 +374,40 @@ Return a JSON array where each object matches:
         }
       }
 
+      const isFound = effectiveMatchLevel === 'MATCHED';
+      const gapImportance: KeywordGapItem['importance'] = req.critical ? 'REQUIRED' : req.importance === 'REQUIRED' ? 'REQUIRED' : 'PREFERRED';
+
+      let gapRec = '';
+      if (isFound) {
+        gapRec = `Prominently showcase your verified experience in "${req.text}" in your application bullets and executive summary.`;
+      } else if (effectiveMatchLevel === 'UNCLEAR') {
+        gapRec = `Explicitly clarify and quantify your exposure to "${req.text}" using truthful metrics from past projects.`;
+      } else {
+        gapRec = `Highlight adjacent or transferable capabilities related to "${req.text}" without fabricating unearned credentials.`;
+      }
+
+      keywordGaps.push({
+        keyword: req.text,
+        importance: gapImportance,
+        foundInResume: isFound,
+        evidence: req.evidence,
+        recommendation: gapRec
+      });
+
       if (effectiveMatchLevel === 'MATCHED') {
-        if (req.category === 'EXPERIENCE' && typeof req.requiredYears === 'number') {
-          reqEarned = weight;
-        } else {
-          reqEarned = weight;
-        }
+        reqEarned = weight;
         evidenceAvailableCount++;
-        if (req.category === 'SKILL') matchedSkills.push(req.text);
+        if (req.category === 'SKILL') {
+          matchedSkills.push(req.text);
+          if (resumeRecommendations.length < 5) {
+            resumeRecommendations.push({
+              category: 'SKILLS_TO_EMPHASIZE',
+              headline: `Emphasize Verified Skill: ${req.text}`,
+              suggestion: `Make ${req.text} prominent in the core competencies section of your tailored CV.`,
+              groundingEvidence: req.evidence
+            });
+          }
+        }
       } else if (effectiveMatchLevel === 'UNCLEAR') {
         if (req.category === 'EXPERIENCE' && typeof req.requiredYears === 'number') {
           const candidateYears = typeof req.candidateYears === 'number' ? req.candidateYears : (evidence?.experience?.totalYears || 0);
@@ -368,23 +420,41 @@ Return a JSON array where each object matches:
           reqEarned = (weight * 0.4);
         }
         unclearCount++;
-      } else if (effectiveMatchLevel === 'MISSING') {
-        if (req.category === 'EXPERIENCE' && typeof req.requiredYears === 'number') {
-          const candidateYears = typeof req.candidateYears === 'number' ? req.candidateYears : (evidence?.experience?.totalYears || 0);
-          if (candidateYears > 0) {
-            if (candidateYears > 0) {
-            reqEarned = weight * (candidateYears / req.requiredYears);
-          } else {
-            reqEarned = (weight * 0.4);
-          }
-          }
+
+        if (resumeRecommendations.length < 6) {
+          resumeRecommendations.push({
+            category: 'ACHIEVEMENTS_TO_REPHRASE',
+            headline: `Clarify Experience for ${req.text}`,
+            suggestion: `Rephrase existing bullets to explicitly connect your accomplishments with the requirements for ${req.text}.`,
+            groundingEvidence: req.evidence
+          });
         }
+      } else if (effectiveMatchLevel === 'MISSING') {
         if (req.critical) missingCritical.push(req.text);
         if (req.importance === 'REQUIRED') missingRequired.push(req.text);
         if (req.importance === 'PREFERRED') missingNiceToHave.push(req.text);
+
+        if (req.importance === 'REQUIRED' && resumeRecommendations.length < 6) {
+          resumeRecommendations.push({
+            category: 'KEYWORDS_TO_ADD',
+            headline: `Address Target Requirement: ${req.text}`,
+            suggestion: `If you have truthful exposure to ${req.text} from past projects or coursework, mention it in your summary or project details.`,
+            groundingEvidence: 'Missing from uploaded base CV'
+          });
+        }
       }
       
       totalEarned += reqEarned;
+    }
+
+    // Add high-level summary recommendation
+    if (matchedSkills.length > 0) {
+      resumeRecommendations.unshift({
+        category: 'SUMMARY_IMPROVEMENT',
+        headline: 'Lead with Core Strengths',
+        suggestion: `Frame your professional summary around your validated expertise in ${matchedSkills.slice(0, 3).join(', ')}.`,
+        groundingEvidence: `Truthfully documented in CV skills`
+      });
     }
 
     let score = totalPossible > 0 ? Math.round((totalEarned / totalPossible) * 100) : null;
@@ -448,6 +518,8 @@ Return a JSON array where each object matches:
       missingNiceToHaveSkills: missingNiceToHave,
       concerns: missingCritical.length > 0 ? ['Missing critical requirements'] : [],
       recommendation,
+      keywordGaps,
+      resumeRecommendations,
       details: evaluatedReqs
     };
   }

@@ -1,5 +1,8 @@
 import { Job, SearchFilters, ProviderStatus, JobProvider } from '../src/types.js';
 import { mockJobs } from './mockJobs.js';
+import { LinkedInJobProvider } from './providers/linkedin.js';
+
+export { LinkedInJobProvider };
 
 export class MockJobProvider implements JobProvider {
   async searchJobs(filters: SearchFilters): Promise<Partial<Job>[]> {
@@ -111,8 +114,12 @@ export class NaukriJobProvider implements JobProvider {
   }
 }
 
-export function getProvider(): JobProvider {
-  if (process.env.JOB_PROVIDER === 'naukri') {
+export function getProvider(providerName?: string): JobProvider {
+  const selected = providerName || process.env.JOB_PROVIDER;
+  if (selected === 'linkedin') {
+    return new LinkedInJobProvider();
+  }
+  if (selected === 'naukri') {
     return new NaukriJobProvider();
   }
   return new MockJobProvider();
