@@ -17,7 +17,7 @@ describe('calculateApplicationReadiness', () => {
       id: 'app-1',
       userId: 'user-1',
       jobId: 'job-1',
-      status: 'PREPARING',
+      status: 'SAVED',
       datePrepared: Date.now(),
       tailoredCv: 'Some cv', 
       coverLetter: 'Some letter', 

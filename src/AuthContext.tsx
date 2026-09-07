@@ -32,9 +32,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check if we have a demo session in localStorage
+    // Check if we have a demo session in localStorage (ONLY allowed in non-production development environments)
+    const isProduction = import.meta.env.PROD;
     const demoSession = localStorage.getItem('demo_user_session');
-    if (demoSession === 'true') {
+    
+    if (demoSession === 'true' && !isProduction) {
       setUser({
         uid: 'demo-user-123',
         email: 'demo@example.com',
@@ -44,6 +46,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       setLoading(false);
       return;
+    } else if (demoSession === 'true' && isProduction) {
+      localStorage.removeItem('demo_user_session');
     }
 
     if (isFirebaseConfigured() && auth) {
@@ -79,6 +83,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signInDemo = () => {
+    if (import.meta.env.PROD) {
+      console.error("Demo authentication is completely disabled in production.");
+      return;
+    }
     localStorage.setItem('demo_user_session', 'true');
     setUser({
       uid: 'demo-user-123',

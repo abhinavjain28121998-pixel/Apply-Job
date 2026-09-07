@@ -12,6 +12,10 @@ export const linkedinAuthService = {
           'Authorization': `Bearer ${token}`
         }
       });
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        throw new Error(`Server returned unexpected content type: ${contentType}`);
+      }
       if (!res.ok) {
         throw new Error(`Status check failed: ${res.status}`);
       }
@@ -33,15 +37,32 @@ export const linkedinAuthService = {
    * Requests authorization URL from server.
    */
   async getAuthStart(token: string, redirectPath?: string): Promise<{ configured: boolean; authUrl?: string; state?: string; error?: string }> {
-    const url = redirectPath 
-      ? `/api/linkedin/auth/start?redirectPath=${encodeURIComponent(redirectPath)}` 
-      : '/api/linkedin/auth/start';
-    const res = await fetch(url, {
-      headers: {
-        'Authorization': `Bearer ${token}`
+    try {
+      const url = redirectPath 
+        ? `/api/linkedin/auth/start?redirectPath=${encodeURIComponent(redirectPath)}` 
+        : '/api/linkedin/auth/start';
+      const res = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        const text = await res.text();
+        return {
+          configured: false,
+          error: res.ok
+            ? 'Server returned non-JSON response instead of authorization configuration.'
+            : `Network error (HTTP ${res.status}): ${text.slice(0, 150) || 'Unknown gateway issue'}`
+        };
       }
-    });
-    return await res.json();
+      return await res.json();
+    } catch (e: any) {
+      return {
+        configured: false,
+        error: `Failed to request authorization flow: ${e?.message || 'Network unreachable'}`
+      };
+    }
   },
 
   /**

@@ -133,6 +133,18 @@ export function buildLinkedInJobsUrl(criteria: LinkedInSearchCriteria): string {
     searchParams.set('sortBy', 'R');
   }
 
+  // 7. Date Posted (f_TPR)
+  if (criteria?.datePosted) {
+    const dp = criteria.datePosted.toLowerCase();
+    if (dp === 'past-24h' || dp === '24h' || dp === 'day') {
+      searchParams.set('f_TPR', 'r86400');
+    } else if (dp === 'past-week' || dp === 'week') {
+      searchParams.set('f_TPR', 'r604800');
+    } else if (dp === 'past-month' || dp === 'month') {
+      searchParams.set('f_TPR', 'r2592000');
+    }
+  }
+
   // Attach safe search parameters to the native URL constructor
   const paramString = searchParams.toString();
   if (paramString) {

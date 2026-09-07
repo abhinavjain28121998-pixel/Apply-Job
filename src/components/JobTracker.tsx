@@ -164,11 +164,12 @@ export default function JobTracker() {
                       className="text-sm font-medium text-slate-700 bg-slate-100 px-2 py-1 rounded-md border-none outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                     >
                       <option value="SAVED">Saved</option>
-                      <option value="APPLYING">Applying</option>
+                      <option value="INTERESTED">Interested</option>
                       <option value="APPLIED">Applied</option>
                       <option value="INTERVIEW">Interview</option>
-                      <option value="OFFER">Offer</option>
                       <option value="REJECTED">Rejected</option>
+                      <option value="OFFER">Offer</option>
+                      <option value="WITHDRAWN">Withdrawn</option>
                     </select>
                   </td>
                   <td className="p-4 text-right">

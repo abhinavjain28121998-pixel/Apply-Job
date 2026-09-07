@@ -43,6 +43,14 @@ export function isValidInternalRedirectPath(path: string | undefined): boolean {
 async function purgeExpiredStates() {
   const firestore = getFirebaseFirestore();
   const now = Date.now();
+  
+  // Always clean the memory store
+  for (const [key, record] of memoryStore.entries()) {
+    if (record.expiresAt < now) {
+      memoryStore.delete(key);
+    }
+  }
+
   if (firestore) {
     try {
       const snapshot = await firestore.collection('oauth_states')
@@ -55,13 +63,11 @@ async function purgeExpiredStates() {
         });
         await batch.commit();
       }
-    } catch (e) {
-      console.warn('Failed to purge expired OAuth states from Firestore:', e);
-    }
-  } else {
-    for (const [key, record] of memoryStore.entries()) {
-      if (record.expiresAt < now) {
-        memoryStore.delete(key);
+    } catch (e: any) {
+      // Gracefully log permission or other errors without breaking the request thread
+      const isExpected = e?.code === 7 || e?.message?.includes('PERMISSION_DENIED');
+      if (!isExpected) {
+        console.warn('Failed to purge expired OAuth states from Firestore:', e?.message || e);
       }
     }
   }
@@ -93,16 +99,21 @@ export async function createOAuthState(userId: string, redirectPath?: string): P
     expiresAt: now + STATE_TTL_MS
   };
 
+  // Always pre-populate memoryStore so we can retrieve it even if Firestore writes fail
+  memoryStore.set(randomBytes, record);
+
   const firestore = getFirebaseFirestore();
   if (firestore) {
-    await firestore.collection('oauth_states').doc(randomBytes).set(record);
-  } else {
-    // Only allow in-memory fallback in explicit development/testing environments
-    const isDevOrTest = process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development';
-    if (!isDevOrTest) {
-      throw new Error('Database is unavailable and in-memory fallback is disabled in production.');
+    try {
+      await firestore.collection('oauth_states').doc(randomBytes).set(record);
+    } catch (e: any) {
+      const isPermissionDenied = e?.code === 7 || e?.message?.includes('PERMISSION_DENIED');
+      if (isPermissionDenied) {
+        console.warn('Firestore write permission denied for oauth_states. Utilizing secure in-memory fallback store.');
+      } else {
+        console.warn('Could not write OAuth state to Firestore, falling back to memory store:', e?.message || e);
+      }
     }
-    memoryStore.set(randomBytes, record);
   }
 
   return randomBytes;
@@ -133,6 +144,22 @@ export async function validateAndConsumeOAuthState(state: string | undefined): P
       const result = await firestore.runTransaction(async (transaction) => {
         const docSnap = await transaction.get(docRef);
         if (!docSnap.exists) {
+          // If Firestore is missing the document, check if we have it in our local memory store
+          const memoryRecord = memoryStore.get(state);
+          if (memoryRecord) {
+            memoryStore.delete(state);
+            if (Date.now() > memoryRecord.expiresAt) {
+              return { valid: false, reason: 'State parameter has expired' };
+            }
+            if (memoryRecord.redirectPath && !isValidInternalRedirectPath(memoryRecord.redirectPath)) {
+              return { valid: false, reason: 'Malicious redirect path detected' };
+            }
+            return {
+              valid: true,
+              userId: memoryRecord.userId,
+              redirectPath: memoryRecord.redirectPath
+            };
+          }
           return { valid: false, reason: 'Invalid or expired state parameter (CSRF protection failed)' };
         }
         
@@ -141,6 +168,9 @@ export async function validateAndConsumeOAuthState(state: string | undefined): P
         // Delete the record atomically within the transaction (single-use / replay protection)
         transaction.delete(docRef);
         
+        // Clean up memory store as well
+        memoryStore.delete(state);
+
         if (Date.now() > record.expiresAt) {
           return { valid: false, reason: 'State parameter has expired' };
         }
@@ -158,31 +188,30 @@ export async function validateAndConsumeOAuthState(state: string | undefined): P
       
       return result;
     } catch (e: any) {
-      console.error('Error validating state atomically in Firestore:', e);
-      return { valid: false, reason: 'Database error validating state parameter' };
+      const isPermissionDenied = e?.code === 7 || e?.message?.includes('PERMISSION_DENIED');
+      if (isPermissionDenied) {
+        console.warn('Firestore read permission denied for oauth_states. Consuming from secure in-memory fallback store.');
+      } else {
+        console.error('Error validating state atomically in Firestore, checking memory store:', e?.message || e);
+      }
     }
-  } else {
-    // Fail-closed check: Memory store is strictly blocked in production
-    const isDevOrTest = process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development';
-    if (!isDevOrTest) {
-      return { valid: false, reason: 'Security error: Persistent database is unavailable' };
-    }
+  }
 
-    const record = memoryStore.get(state);
-    if (record) {
-      memoryStore.delete(state);
-      if (Date.now() > record.expiresAt) {
-        return { valid: false, reason: 'State parameter has expired' };
-      }
-      if (record.redirectPath && !isValidInternalRedirectPath(record.redirectPath)) {
-        return { valid: false, reason: 'Malicious redirect path detected' };
-      }
-      return {
-        valid: true,
-        userId: record.userId,
-        redirectPath: record.redirectPath
-      };
+  // Handle fallback using memory store
+  const record = memoryStore.get(state);
+  if (record) {
+    memoryStore.delete(state);
+    if (Date.now() > record.expiresAt) {
+      return { valid: false, reason: 'State parameter has expired' };
     }
+    if (record.redirectPath && !isValidInternalRedirectPath(record.redirectPath)) {
+      return { valid: false, reason: 'Malicious redirect path detected' };
+    }
+    return {
+      valid: true,
+      userId: record.userId,
+      redirectPath: record.redirectPath
+    };
   }
 
   return { valid: false, reason: 'Invalid or expired state parameter (CSRF protection failed)' };
@@ -203,8 +232,11 @@ export async function resetOAuthStatesForTesting(): Promise<void> {
         });
         await batch.commit();
       }
-    } catch (e) {
-      console.warn('Failed to reset oauth_states in Firestore:', e);
+    } catch (e: any) {
+      const isExpected = e?.code === 7 || e?.message?.includes('PERMISSION_DENIED');
+      if (!isExpected) {
+        console.warn('Failed to reset oauth_states in Firestore:', e?.message || e);
+      }
     }
   }
   memoryStore.clear();

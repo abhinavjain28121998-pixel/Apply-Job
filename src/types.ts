@@ -1,6 +1,6 @@
 export type JobRecommendation = 'APPLY' | 'APPLY_WITH_CHANGES' | 'LOW_PRIORITY' | 'SKIP';
 
-export type JobStatus = 'DISCOVERED' | 'SAVED' | 'PREPARING' | 'READY_FOR_REVIEW' | 'APPLYING' | 'APPLIED' | 'INTERVIEW' | 'OFFER' | 'REJECTED';
+export type JobStatus = 'SAVED' | 'INTERESTED' | 'APPLIED' | 'INTERVIEW' | 'REJECTED' | 'OFFER' | 'WITHDRAWN';
 
 export type RequirementCategory = 'SKILL' | 'EXPERIENCE' | 'RESPONSIBILITY' | 'EDUCATION' | 'CERTIFICATION' | 'LOCATION' | 'OTHER';
 
@@ -104,6 +104,7 @@ export interface LinkedInSearchCriteria {
   salaryMin?: number;
   salaryMax?: number;
   sortBy?: 'recent' | 'relevant';
+  datePosted?: string;
 }
 
 export interface SavedLinkedInSearch {

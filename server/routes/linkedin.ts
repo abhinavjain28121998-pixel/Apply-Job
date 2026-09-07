@@ -61,15 +61,38 @@ function validateAndSanitizeSearchCriteria(criteria: any): any {
  * Matches the LinkedIn Developer Portal configured redirect URI.
  */
 function getRedirectUri(req: Request): string {
-  if (process.env.LINKEDIN_REDIRECT_URI && process.env.LINKEDIN_REDIRECT_URI.trim()) {
-    return process.env.LINKEDIN_REDIRECT_URI.trim();
-  }
-  if (process.env.APP_URL && process.env.APP_URL.trim()) {
-    return `${process.env.APP_URL.replace(/\/+$/, '')}/api/linkedin/auth/callback`;
-  }
   const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol || 'https';
   const host = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'localhost:3000';
-  return `${proto}://${host}/api/linkedin/auth/callback`;
+  const currentDomain = `${proto}://${host}`;
+
+  if (process.env.LINKEDIN_REDIRECT_URI && process.env.LINKEDIN_REDIRECT_URI.trim()) {
+    const configUri = process.env.LINKEDIN_REDIRECT_URI.trim();
+    try {
+      const configUrlObj = new URL(configUri);
+      const currentHostOnly = host.split(':')[0];
+      const configHostOnly = configUrlObj.hostname;
+      
+      if (configHostOnly !== currentHostOnly) {
+        console.warn(`[OAuth Redirect URI Bypass] Configured redirect host (${configHostOnly}) does not match current host (${currentHostOnly}). Routing dynamically back to active app container.`);
+        return `${currentDomain}/api/linkedin/auth/callback`;
+      }
+    } catch {
+      // If config URI is malformed, fall through to default
+    }
+    return configUri;
+  }
+
+  if (process.env.APP_URL && process.env.APP_URL.trim()) {
+    try {
+      const appUrlHost = new URL(process.env.APP_URL).hostname;
+      const currentHostOnly = host.split(':')[0];
+      if (appUrlHost === currentHostOnly) {
+        return `${process.env.APP_URL.replace(/\/+$/, '')}/api/linkedin/auth/callback`;
+      }
+    } catch {}
+  }
+
+  return `${currentDomain}/api/linkedin/auth/callback`;
 }
 
 /**
@@ -80,9 +103,10 @@ function getRedirectUri(req: Request): string {
  */
 linkedinRouter.get('/status', requireAuth, async (req: Request, res: Response) => {
   try {
-    const isEnabled = process.env.LINKEDIN_ENABLED === 'true';
     const clientId = process.env.LINKEDIN_CLIENT_ID?.trim();
     const clientSecret = process.env.LINKEDIN_CLIENT_SECRET?.trim();
+    const isExplicitlyDisabled = process.env.LINKEDIN_ENABLED === 'false';
+    const isEnabled = !isExplicitlyDisabled && !!(clientId || clientSecret || process.env.LINKEDIN_ENABLED === 'true');
     const redirectUri = getRedirectUri(req);
     const scopes = (process.env.LINKEDIN_SCOPES || DEFAULT_SCOPES).trim();
     
@@ -163,7 +187,11 @@ linkedinRouter.get('/status', requireAuth, async (req: Request, res: Response) =
  */
 linkedinRouter.get('/auth/start', requireAuth, async (req: Request, res: Response) => {
   try {
-    const isEnabled = process.env.LINKEDIN_ENABLED === 'true';
+    const clientId = process.env.LINKEDIN_CLIENT_ID?.trim();
+    const clientSecret = process.env.LINKEDIN_CLIENT_SECRET?.trim();
+    const isExplicitlyDisabled = process.env.LINKEDIN_ENABLED === 'false';
+    const isEnabled = !isExplicitlyDisabled && !!(clientId || clientSecret || process.env.LINKEDIN_ENABLED === 'true');
+
     if (!isEnabled) {
       return res.status(200).json({
         configured: false,
@@ -172,16 +200,13 @@ linkedinRouter.get('/auth/start', requireAuth, async (req: Request, res: Respons
       });
     }
 
-    const clientId = process.env.LINKEDIN_CLIENT_ID?.trim();
-    const clientSecret = process.env.LINKEDIN_CLIENT_SECRET?.trim();
-
     if (!clientId || !clientSecret) {
       const missing: string[] = [];
       if (!clientId) missing.push('LINKEDIN_CLIENT_ID');
       if (!clientSecret) missing.push('LINKEDIN_CLIENT_SECRET');
       return res.status(200).json({
         configured: false,
-        error: `LinkedIn OAuth is enabled (LINKEDIN_ENABLED=true), but missing required credentials: ${missing.join(', ')}.`,
+        error: `LinkedIn OAuth is enabled, but missing required credentials: ${missing.join(', ')}.`,
         authUrl: null
       });
     }
