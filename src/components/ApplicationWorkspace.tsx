@@ -12,6 +12,7 @@ import { CheckCircle2, ChevronLeft, AlertTriangle, ExternalLink, RefreshCw, File
 import ReactMarkdown from 'react-markdown';
 import { safeFetchJson } from '../lib/api';
 import { buildLinkedInSearchUrlForJob } from '../services/linkedinService';
+import RadialProgressBar from './RadialProgressBar';
 
 export default function ApplicationWorkspace() {
   const { id } = useParams<{ id: string }>();
@@ -271,14 +272,9 @@ export default function ApplicationWorkspace() {
           
           <div className="flex items-center gap-6">
             {/* Match Score */}
-            <div className="flex flex-col items-center justify-center bg-slate-50 border border-slate-200 rounded-xl p-3 min-w-[100px]">
+            <div className="flex flex-col items-center justify-center bg-slate-50 border border-slate-200 rounded-xl p-3 min-w-[100px] min-h-[108px]">
               {match?.matchScore != null ? (
-                <>
-                  <span className={`text-3xl font-bold ${match?.matchScore >= 80 ? 'text-green-600' : match?.matchScore >= 50 ? 'text-amber-500' : 'text-red-500'}`}>
-                    {match?.matchScore}%
-                  </span>
-                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1">Match</div>
-                </>
+                <RadialProgressBar score={match.matchScore} size={64} strokeWidth={5} label="Match" theme="dynamic" />
               ) : (
                 <>
                   <span className="text-sm font-medium text-slate-500 mb-1 px-2">Not Analyzed</span>
@@ -295,9 +291,8 @@ export default function ApplicationWorkspace() {
             </div>
             
             {/* Readiness */}
-            <div className="flex flex-col items-center justify-center bg-slate-50 border border-slate-200 rounded-xl p-3 min-w-[100px]">
-              <span className="text-3xl font-bold text-indigo-600">{readiness}%</span>
-              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1">Readiness</div>
+            <div className="flex flex-col items-center justify-center bg-slate-50 border border-slate-200 rounded-xl p-3 min-w-[100px] min-h-[108px]">
+              <RadialProgressBar score={readiness} size={64} strokeWidth={5} label="Readiness" theme="indigo" />
             </div>
 
             {/* Apply Action */}

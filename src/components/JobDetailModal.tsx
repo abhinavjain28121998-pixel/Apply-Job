@@ -3,6 +3,7 @@ import { Job, JobMatch } from '../types';
 import { X, MapPin, Briefcase, IndianRupee, Clock, CheckCircle2, AlertTriangle, Building, Save, FileText, Send, Star, Linkedin, ExternalLink } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { buildLinkedInSearchUrlForJob } from '../services/linkedinService';
+import RadialProgressBar from './RadialProgressBar';
 
 interface JobDetailModalProps {
   job: Partial<Job>;
@@ -36,12 +37,9 @@ export default function JobDetailModal({ job, match, isSaved, onClose, onSave, o
             </div>
             <div className="flex items-start gap-4">
               {match?.matchScore !== undefined && (
-                 <div className="flex flex-col items-center justify-center bg-white border border-slate-200 rounded-lg p-2 min-w-[80px]">
-                   <span className={`text-2xl font-bold ${match?.matchScore >= 80 ? 'text-green-600' : match?.matchScore >= 50 ? 'text-amber-500' : 'text-red-500'}`}>
-                     {match?.matchScore}%
-                   </span>
-                   <span className="text-[10px] uppercase font-bold text-slate-400">Match</span>
-                 </div>
+                <div className="flex flex-col items-center justify-center bg-white border border-slate-200 rounded-xl p-2 min-w-[80px]">
+                  <RadialProgressBar score={match.matchScore} size={56} strokeWidth={4.5} label="Match" theme="dynamic" />
+                </div>
               )}
               <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
                 <X className="w-5 h-5 text-slate-500" />
